@@ -269,8 +269,29 @@ function lex(cmd: string, ps: boolean): { segs: Seg[]; fed: Fed[] } {
 const isExe = (w: string | undefined, name: string) =>
   w !== undefined && (w.split(/[\\/]/).pop() ?? '').toLowerCase().replace(/\.exe$/, '') === name
 
-const isAbs = (d: string) => /^([\\/]|~|[A-Za-z]:)/.test(d)
+// Katalog domowy na początku ścieżki z `cd`/`git -C`: `~`, `$HOME`, `${HOME}`, `$env:USERPROFILE`, `%USERPROFILE%`.
+const HOME_RE = /^(~|\$HOME|\$\{HOME\}|\$env:(?:USERPROFILE|HOME)|%USERPROFILE%|%HOME%)(?=[\\/]|$)/i
+// Po rozwinięciu nadal zmienna, podstawienie albo `~user`: katalogu nie da się ustalić.
+const UNRESOLVED = /\$|%\w+%|`|^~/
+
+const isAbs = (d: string) => /^([\\/]|~|[A-Za-z]:)/.test(d) || HOME_RE.test(d)
 const joinDir = (base: string | undefined, d: string) => (!base || isAbs(d) ? d : `${base}/${d}`)
+
+type Home = { home?: string; profile?: string }
+
+async function homeDirs($: EngineInterface): Promise<Home> {
+  const get = async (p: () => Promise<string | undefined>) => {
+    try {
+      return (await p()) || undefined
+    } catch {
+      return undefined
+    }
+  }
+  return { home: await get(() => $.env.get('HOME')), profile: await get(() => $.env.get('USERPROFILE')) }
+}
+
+const expandHome = (d: string, h: Home) =>
+  d.replace(HOME_RE, m => (/userprofile/i.test(m) ? (h.profile ?? h.home) : (h.home ?? h.profile)) ?? m)
 
 // Słowa po podkomendzie gita (`git -C x push ...` -> ['push', ...]) i katalog z `-C`.
 function gitArgs(words: string[]): { args: string[]; dir?: string } | undefined {
@@ -592,7 +613,9 @@ async function judge($: EngineInterface, cmd: string, ps: boolean, agentId?: str
   // `cd` w poleceniu liczy się tylko dla tego polecenia (powłoka agenta wraca do swojego katalogu).
   const base = agentId ? (await read($, agentCwd))[agentId] : undefined
   const mainGate = await read($, bramkaMain)
-  const gates = mainGate ? a.gates.filter(mayHitMain).map(g => ({ ...g, cwd: g.cwd ? joinDir(base, g.cwd) : base })) : []
+  const joined = mainGate ? a.gates.filter(mayHitMain).map(g => ({ ...g, cwd: g.cwd ? joinDir(base, g.cwd) : base })) : []
+  const home = joined.some(g => g.cwd !== undefined && HOME_RE.test(g.cwd)) ? await homeDirs($) : {}
+  const gates = joined.map(g => ({ ...g, cwd: g.cwd === undefined ? undefined : expandHome(g.cwd, home) }))
   const unparsed = mainGate && a.unparsed
   if (gates.length === 0 && !a.deploy && !unparsed) return undefined
 
@@ -622,11 +645,14 @@ async function judge($: EngineInterface, cmd: string, ps: boolean, agentId?: str
       } else {
         for (const t of g.targets) {
           if (t.dst !== null && !MAIN.has(t.dst)) continue
+          // Bieżąca gałąź, a katalogu z `cd` nie da się ustalić (nieznana zmienna): katalog agenta/sesji.
+          // Jawny cel main zostaje w katalogu z `cd`, więc nieustalony = odmowa.
+          const dir = t.dst === null && g.cwd !== undefined && UNRESOLVED.test(g.cwd) ? base : g.cwd
           if (t.dst === null) {
-            const b = await branchOf(g.cwd)
+            const b = await branchOf(dir)
             if (b !== '' && !MAIN.has(b)) continue
           }
-          reviewDenied = check(t.src ?? 'all/deleted refs', t.src === null ? undefined : await revParse($, t.src, g.cwd))
+          reviewDenied = check(t.src ?? 'all/deleted refs', t.src === null ? undefined : await revParse($, t.src, dir))
           if (reviewDenied) break
         }
       }
