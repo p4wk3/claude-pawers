@@ -145,3 +145,85 @@ test('zadania z Lineara: zapasowy plik .claude/zadania.json i id MNG-', async ($
   expect(drawn).not.toContain('Bez zadania')
   await ui.unmount()
 })
+
+const MVP = JSON.stringify({
+  cel: { nazwa: 'MVP fryz.app', termin: '1970-01-04' },
+  zadania: [
+    { id: 'MNG-1', tytul: 'Logowanie', stan: 'zrobione', mvp: true },
+    { id: 'MNG-2', tytul: 'Lista wizyt', stan: 'do-zrobienia', mvp: true, priorytet: 1 },
+    { id: 'MNG-3', tytul: 'Wydajność', stan: 'w-toku', mvp: true, priorytet: 3 },
+    { id: 'MNG-4', tytul: 'Ładniejsze ikony', stan: 'do-zrobienia' },
+  ],
+})
+
+function setup(on: Parameters<Parameters<typeof test>[1]>[1], plik: string | null) {
+  on('session.usage', () => ({ value: {
+    startedAt: 0,
+    context: { tokens: 1000, window: 1000000, percent: 1 },
+    rateLimits: [],
+  } }) as never)
+  on('agent.list', () => ({ value: [] }) as never)
+  on('command.register', () => ({ value: {} }) as never)
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('clock.now', () => ({ value: 1000 }) as never)
+  on('clock.every', () => ({ value: undefined }) as never)
+  // Silnik pod wtyczką: pusty pasek, gdy wtyczka oddaje rysowanie dalej.
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e) as never as { Text: (p: object) => unknown }
+    return Text({ children: 'silnik' }) as never
+  })
+  on('fs.read', ($, e) => {
+    if (plik !== null && e.path.replace(/\\/g, '/').endsWith('.claude/zadania.json')) return { value: plik } as never
+    throw new Error(`ENOENT ${e.path}`)
+  })
+}
+
+test('pasek MVP: postęp, termin i pilne zadania w kolejności', async ($, on) => {
+  setup(on, MVP)
+  await $.session.start({ cwd: '/x', surface: 'terminal', isInteractive: true })
+  await new Promise(r => setTimeout(r, 50))
+  const ui = await $.ui.mount({
+    plugin: 'sztab',
+    surface: 'terminal',
+    component: 'AbovePrompt',
+    props: { hasSurvey: false, bodyColumns: 120 } as never,
+  })
+  const drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('MVP fryz.app')
+  expect(drawn).toContain(' 1/3')
+  expect(drawn).toContain('za 3 dni')
+  expect(drawn.indexOf('MNG-3')).toBeLessThan(drawn.indexOf('MNG-2'))
+  expect(drawn).not.toContain('MNG-4')
+  expect(drawn).not.toContain('MNG-1')
+  await ui.unmount()
+})
+
+test('pasek MVP: bez pola cel nic nie rysuje', async ($, on) => {
+  setup(on, JSON.stringify({ zadania: [{ id: 'MNG-2', tytul: 'Lista wizyt', stan: 'w-toku', mvp: true }] }))
+  await $.session.start({ cwd: '/x', surface: 'terminal', isInteractive: true })
+  await new Promise(r => setTimeout(r, 50))
+  const ui = await $.ui.mount({
+    plugin: 'sztab',
+    surface: 'terminal',
+    component: 'AbovePrompt',
+    props: { hasSurvey: false, bodyColumns: 120 } as never,
+  })
+  expect(JSON.stringify(await ui.drawn())).not.toContain('MNG-2')
+  await ui.unmount()
+})
+
+test('/pawers-setup zleca modelowi konfigurację według skilla', async ($, on) => {
+  setup(on, null)
+  let sent = ''
+  on('prompt.submit', ($, e) => {
+    sent = e.text
+    return { drop: 'test' } as never
+  })
+  on('clock.after', () => ({ value: undefined }) as never)
+  await $.session.start({ cwd: '/x', surface: 'terminal', isInteractive: true })
+  const out = await $.command.run({ command: 'pawers-setup', args: 'cel na 1 listopada' })
+  await new Promise(r => setTimeout(r, 50))
+  expect(out.text).toContain('Konfiguracja Sztabu')
+  expect(sent).toContain('sztab:setup')
+  expect(sent).toContain('cel na 1 listopada')
+})

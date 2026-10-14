@@ -15,7 +15,7 @@ desktopowej). Aktualizacja wszystkich: `claude plugin marketplace update pawers`
 
 | Plugin | Co daje |
 |---|---|
-| [`sztab`](plugins/sztab) | Orkiestrator z zespołem subagentów (zwiadowca, badacz, rzemieślnik, recenzent) i panel `/sztab`: agenci na żywo, zadania, okno kontekstu |
+| [`sztab`](plugins/sztab) | Orkiestrator z zespołem subagentów (zwiadowca, badacz, rzemieślnik, recenzent), panel `/sztab` z agentami na żywo, pasek MVP nad promptem i `/pawers-setup`. Zadania i pasek wymagają Lineara albo pliku `.claude/zadania.json` |
 
 ## Zmiany i nowe pluginy
 

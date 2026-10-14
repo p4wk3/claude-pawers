@@ -1,7 +1,7 @@
 {
   "name": "sztab",
-  "version": "0.2.0",
-  "description": "Orkiestrator z zespołem subagentów (zwiadowca, badacz, rzemieślnik, recenzent) i panel Sztab: agenci na żywo, zadania i okno kontekstu",
+  "version": "0.3.0",
+  "description": "Orkiestrator z zespołem subagentów (zwiadowca, badacz, rzemieślnik, recenzent), panel /sztab, pasek MVP i /pawers-setup",
   "author": { "name": "p4wk3", "url": "https://github.com/p4wk3" },
   "repository": "https://github.com/p4wk3/claude-pawers",
   "license": "MIT",

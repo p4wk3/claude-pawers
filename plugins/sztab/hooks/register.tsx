@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AgentRow, CtxSnap, ZadaniaSnap } from '../types'
+import type { AgentRow, CelSnap, CtxSnap, ZadaniaSnap, ZadanieMvp } from '../types'
 import { avatarFor, bounce } from '../avatary/iso'
 
 const PANE = 'sztab'
@@ -26,6 +26,52 @@ const ctx = atom({ plugin: 'sztab', key: 'ctx' } as const, null)
 const now = atom({ plugin: 'sztab', key: 'now' } as const, 0)
 const zadania = atom({ plugin: 'sztab', key: 'zadania' } as const, null)
 const open = atom({ plugin: 'sztab', key: 'open' } as const, [])
+const dzis = atom({ plugin: 'sztab', key: 'dzis' } as const, 0)
+
+const DAY = 24 * 60 * 60 * 1000
+
+// Numer dnia w czasie lokalnym, żeby „za 3 dni” zmieniało się o północy, nie o 2:00.
+function dayNumber(ms: number): number {
+  const d = new Date(ms)
+  return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / DAY)
+}
+
+function parseDay(iso: string): number | undefined {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  return m ? Math.floor(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / DAY) : undefined
+}
+
+function za(days: number): string {
+  if (days < 0) return `${-days} dni po terminie`
+  if (days === 0) return 'termin dziś'
+  if (days === 1) return 'termin jutro'
+  return `za ${days} dni`
+}
+
+type PlikZadan = {
+  cel?: { nazwa?: string; termin?: string }
+  zadania?: { id: string; tytul: string; stan: string; mvp?: boolean; priorytet?: number }[]
+}
+
+// Kolejność pilności: w toku, do zrobienia, do sprawdzenia; potem priorytet trackera (1 = pilne, 0 = brak).
+const RANGA: Record<string, number> = { 'w-toku': 0, 'do-zrobienia': 1, 'do-sprawdzenia': 2 }
+
+function celOf(z: PlikZadan): CelSnap | null {
+  if (!z.cel?.nazwa) return null
+  const mvp = (z.zadania ?? []).filter(x => x.mvp)
+  const prio = (x: ZadanieMvp) => (x.priorytet && x.priorytet > 0 ? x.priorytet : 99)
+  const pilne = mvp
+    .filter(x => x.stan !== 'zrobione')
+    .map(x => ({ id: x.id, tytul: x.tytul, stan: x.stan, priorytet: x.priorytet }))
+    .sort((a, b) => (RANGA[a.stan] ?? 3) - (RANGA[b.stan] ?? 3) || prio(a) - prio(b))
+  return {
+    nazwa: z.cel.nazwa,
+    termin: z.cel.termin,
+    zrobione: mvp.length - pilne.length,
+    wszystkie: mvp.length,
+    pilne,
+  }
+}
 
 const RUNNING = new Set(['pending', 'running', 'waiting'])
 
@@ -119,7 +165,7 @@ function flushActivity($: EngineInterface): void {
 async function refreshZadania($: EngineInterface): Promise<void> {
   let snap: ZadaniaSnap | null = null
   try {
-    const z = JSON.parse(await readZadania($)) as { zadania?: { id: string; tytul: string; stan: string }[] }
+    const z = JSON.parse(await readZadania($)) as PlikZadan
     const list = z.zadania ?? []
     const count = (stan: string) => list.filter(x => x.stan === stan).length
     snap = {
@@ -128,11 +174,14 @@ async function refreshZadania($: EngineInterface): Promise<void> {
       doZrobienia: count('do-zrobienia'),
       doSprawdzenia: count('do-sprawdzenia'),
       zrobione: count('zrobione'),
+      cel: celOf(z),
     }
   } catch {
     // brak albo zepsuty plik: sekcja zadań się nie pokazuje
   }
   await update($, zadania, prev => (JSON.stringify(prev) === JSON.stringify(snap) ? prev : snap))
+  const day = dayNumber(await $.clock.now())
+  await update($, dzis, prev => (prev === day ? prev : day))
 }
 
 // Kolory w średnich tonach: czytelne na jasnym i ciemnym motywie.
@@ -228,6 +277,10 @@ export const register: Register = on => {
       name: 'sztab',
       description: 'Otwiera panel Sztab: subagenci na żywo i okno kontekstu',
     })
+    await $.command.register({
+      name: 'pawers-setup',
+      description: 'Konfiguruje Sztab w tym repo: źródło zadań (Linear albo plik JSON), cel MVP, CLAUDE.md',
+    })
 
     let tick = 0
     $.clock.every(1000, () => {
@@ -251,6 +304,21 @@ export const register: Register = on => {
     await refreshCtx($)
 
     return { text: 'Panel Sztab otwarty.' }
+  })
+
+  // Konfigurację prowadzi model według skilla sztab:setup; komenda tylko ją zleca.
+  on('command.run', { command: 'pawers-setup' }, async ($, e) => {
+    const extra = e.args.trim()
+    // Z hooka komendy nie wolno czekać na turę, którą on trzyma: prompt idzie chwilę później.
+    $.clock.after(0, () => {
+      void $.prompt.submit({
+        text:
+          'Skonfiguruj Sztab w tym repo: wczytaj skill `sztab:setup` i przeprowadź mnie przez niego krok po kroku.' +
+          (extra ? ` Moje uwagi: ${extra}` : ''),
+      })
+    })
+
+    return { text: 'Konfiguracja Sztabu: zaczynam.' }
   })
 
   on('agent.spawn', async ($, e, next) => {
@@ -309,6 +377,52 @@ export const register: Register = on => {
     }
 
     return result
+  })
+
+  // Pasek MVP nad promptem: tylko gdy plik zadań ma pole `cel`.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const zs = await read($, zadania)
+    const cel = zs?.cel
+    if (!cel || e.props.hasSurvey) return next(e)
+
+    const today = await read($, dzis)
+    const end = cel.termin ? parseDay(cel.termin) : undefined
+    const days = end === undefined ? undefined : end - today
+    const termColor = days === undefined ? undefined : days <= 3 ? 'error' : days <= 7 ? 'warning' : undefined
+    const isDone = cel.wszystkie > 0 && cel.pilne.length === 0
+    const shown = cel.pilne.slice(0, 3)
+    const { Box, Text } = $.ui.resolve(e)
+
+    return (
+      <Box flexDirection="row" flexWrap="wrap">
+        <Text bold color="claude">
+          {cel.nazwa}
+        </Text>
+        {isDone ? (
+          <Text color="success">{'  gotowe ✓'}</Text>
+        ) : (
+          <Text>
+            {'  '}
+            <Text color="success">{bar(cel.wszystkie ? (100 * cel.zrobione) / cel.wszystkie : 0, 10)}</Text>
+            <Text dimColor>{` ${cel.zrobione}/${cel.wszystkie}`}</Text>
+          </Text>
+        )}
+        {days !== undefined && !isDone && <Text color={termColor}>{`  ·  ${za(days)}`}</Text>}
+        {shown.length > 0 && (
+          <Text wrap="truncate-end">
+            <Text dimColor>{'  │  pilne: '}</Text>
+            {shown.map((z, i) => (
+              <Text key={z.id}>
+                {i > 0 ? <Text dimColor>{' · '}</Text> : null}
+                <Text bold={z.stan === 'w-toku'}>{z.id}</Text>
+                <Text dimColor>{` ${cut(z.tytul, 28)}`}</Text>
+              </Text>
+            ))}
+            {cel.pilne.length > shown.length && <Text dimColor>{`  +${cel.pilne.length - shown.length}`}</Text>}
+          </Text>
+        )}
+      </Box>
+    )
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

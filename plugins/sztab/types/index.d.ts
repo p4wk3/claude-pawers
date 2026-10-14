@@ -30,6 +30,18 @@ export type CtxSnap = {
 
 export type ZadanieW = { id: string; tytul: string }
 
+// Zadanie MVP do zrobienia, w kolejności pilności (w toku, potem priorytet).
+export type ZadanieMvp = { id: string; tytul: string; stan: string; priorytet?: number }
+
+// Cel z pola `cel` pliku zadań: postęp MVP i to, co go blokuje.
+export type CelSnap = {
+  nazwa: string
+  termin?: string
+  zrobione: number
+  wszystkie: number
+  pilne: ZadanieMvp[]
+}
+
 // Wyciąg z pliku zadań bieżącego katalogu (format w README).
 export type ZadaniaSnap = {
   wToku: ZadanieW[]
@@ -37,6 +49,7 @@ export type ZadaniaSnap = {
   doZrobienia: number
   doSprawdzenia: number
   zrobione: number
+  cel: CelSnap | null
 }
 
 declare module 'claude-code' {
@@ -48,6 +61,8 @@ declare module 'claude-code' {
       zadania: ZadaniaSnap | null
       // Id gotowych agentów z rozwiniętym podglądem wyniku.
       open: string[]
+      // Dzień (liczba dni od epoki, czas lokalny) do odliczania terminu celu.
+      dzis: number
     }
   }
 }

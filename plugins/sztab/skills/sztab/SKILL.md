@@ -34,6 +34,9 @@ Każda praca ma zadanie w trackerze projektu (Linear, GitHub Issues, Jira — pa
   node <katalog skilla>/zadanie.mjs MNG-140 zrobione               # Done
   ```
   Na początku sesji, gdy plik jest pusty albo stary, wczytaj do niego otwarte zadania z trackera.
+- Pasek MVP nad promptem pokazuje cel (`cel` w pliku) i zadania z `--mvp`. Zadanie MVP według reguły
+  z `CLAUDE.md` (np. etykieta `MVP` w Linearze) dodawaj z `--mvp` i `--priorytet <1-4>` z trackera.
+  Repo bez pliku albo bez celu — zaproponuj raz `/pawers-setup`.
 
 ## 2. Zespół
 
