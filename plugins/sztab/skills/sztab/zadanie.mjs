@@ -13,42 +13,81 @@
 //
 // States: do-zrobienia (Todo), w-toku (In Progress), do-sprawdzenia (Review), zrobione (Done).
 // Priority follows Linear: 1 urgent, 2 high, 3 medium, 4 low, 0 none.
-// Run it from the repo root; the file lands in <cwd>/.claude/zadania.json.
+// Titles starting with "--" go after a bare "--": node zadanie.mjs MNG-1 w-toku -- "--hotfix".
+// Run it from the repo root. It writes the file the panel reads first: zadania/zadania.json when it
+// exists, otherwise .claude/zadania.json.
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
-const DIR = join(process.cwd(), ".claude");
-const FILE = join(DIR, "zadania.json");
+const FILE = [
+  join(process.cwd(), "zadania", "zadania.json"),
+  join(process.cwd(), ".claude", "zadania.json"),
+].find(existsSync) ?? join(process.cwd(), ".claude", "zadania.json");
 const STATES = ["do-zrobienia", "w-toku", "do-sprawdzenia", "zrobione"];
 const ID = /^[A-Z][A-Z0-9]*-\d+$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-
-function load() {
-  try {
-    return JSON.parse(readFileSync(FILE, "utf8"));
-  } catch {
-    return { zadania: [] };
-  }
-}
-
-function save(data) {
-  mkdirSync(DIR, { recursive: true });
-  writeFileSync(FILE, JSON.stringify(data, null, 2) + "\n");
-}
 
 function fail(message) {
   console.error(message);
   process.exit(1);
 }
 
+// A missing file starts empty; a broken one stops the script instead of being overwritten.
+function load() {
+  if (!existsSync(FILE)) return { zadania: [] };
+  let data;
+  try {
+    data = JSON.parse(readFileSync(FILE, "utf8"));
+  } catch (err) {
+    fail(`${FILE} is not valid JSON (${err.message}); fix it by hand first`);
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data))
+    fail(`${FILE} must hold a JSON object`);
+  return data;
+}
+
+function isDate(iso) {
+  if (!DATE.test(iso)) return false;
+  const [y, m, d] = iso.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+}
+
+function save(data) {
+  mkdirSync(dirname(FILE), { recursive: true });
+  writeFileSync(FILE, JSON.stringify(data, null, 2) + "\n");
+}
+
+// Flags anywhere before a bare "--"; everything else (and everything after it) is positional.
+const KNOWN = new Set(["--mvp", "--bez-mvp", "--usun"]);
+const flags = new Set();
+const positional = [];
+let priorytet;
 const argv = process.argv.slice(2);
-const flags = new Set(argv.filter((x) => x.startsWith("--")));
-const prioAt = argv.indexOf("--priorytet");
-const priorytet = prioAt >= 0 ? Number(argv[prioAt + 1]) : undefined;
-const [a, b, c] = argv.filter(
-  (x, i) => !x.startsWith("--") && (prioAt < 0 || i !== prioAt + 1),
-);
+for (let i = 0; i < argv.length; i++) {
+  const x = argv[i];
+  if (x === "--") {
+    positional.push(...argv.slice(i + 1));
+    break;
+  }
+  if (!x.startsWith("--")) {
+    positional.push(x);
+    continue;
+  }
+  const [name, inline] = x.split("=", 2);
+  if (name === "--priorytet") {
+    const raw = inline ?? argv[++i];
+    priorytet = /^[0-4]$/.test(raw ?? "") ? Number(raw) : NaN;
+    if (Number.isNaN(priorytet)) fail(`Bad priority: ${raw} (0-4)`);
+  } else if (KNOWN.has(x)) {
+    flags.add(x);
+  } else {
+    fail(`Unknown flag: ${x} (known: --mvp, --bez-mvp, --priorytet N, --usun, --)`);
+  }
+}
+if (flags.has("--mvp") && flags.has("--bez-mvp")) fail("Pick one of --mvp and --bez-mvp");
+const [a, b, c] = positional;
 const data = load();
 data.zadania ??= [];
 
@@ -63,7 +102,7 @@ if (!a) {
     delete data.cel;
   } else {
     if (!b) fail('Goal needs a name: cel "MVP fryz.app" [YYYY-MM-DD]');
-    if (c && !DATE.test(c)) fail(`Bad date: ${c} (expected YYYY-MM-DD)`);
+    if (c && !isDate(c)) fail(`Bad date: ${c} (expected a real YYYY-MM-DD)`);
     data.cel = c ? { nazwa: b, termin: c } : { nazwa: b };
   }
   save(data);
@@ -71,8 +110,6 @@ if (!a) {
   if (!ID.test(a)) fail(`Bad id: ${a} (expected PREFIX-n, e.g. MNG-140)`);
   if (!STATES.includes(b))
     fail(`Bad state: ${b} (one of ${STATES.join(", ")})`);
-  if (priorytet !== undefined && !(priorytet >= 0 && priorytet <= 4))
-    fail(`Bad priority: ${argv[prioAt + 1]} (0-4)`);
   let task = data.zadania.find((z) => z.id === a);
   if (task) {
     task.stan = b;

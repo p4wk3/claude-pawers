@@ -26,7 +26,8 @@ test('panel rysuje się bez odrzucenia na desktopie i w terminalu', async ($, on
     const drawn = JSON.stringify(await ui.drawn())
     expect(drawn).toContain('19%')
     expect(drawn).toContain('Przegląd decyzji')
-    expect(drawn).not.toContain('Zadania')
+    expect(drawn).not.toContain('do zrobienia')
+    expect(drawn).toContain('/pawers-setup')
     if (surface === 'desktop') expect(drawn).toContain('Badacz')
     await ui.unmount()
   }
@@ -156,7 +157,11 @@ const MVP = JSON.stringify({
   ],
 })
 
-function setup(on: Parameters<Parameters<typeof test>[1]>[1], plik: string | null) {
+// Czekanie na zapisy z session.start, które moduł robi bez await.
+const settle = () => new Promise(r => (globalThis as unknown as { setTimeout: (f: () => void, ms: number) => void }).setTimeout(() => r(undefined), 50))
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function setup(on: any, plik: string | null) {
   on('session.usage', () => ({ value: {
     startedAt: 0,
     context: { tokens: 1000, window: 1000000, percent: 1 },
@@ -164,15 +169,16 @@ function setup(on: Parameters<Parameters<typeof test>[1]>[1], plik: string | nul
   } }) as never)
   on('agent.list', () => ({ value: [] }) as never)
   on('command.register', () => ({ value: {} }) as never)
-  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('session.start', ($: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('clock.now', () => ({ value: 1000 }) as never)
   on('clock.every', () => ({ value: undefined }) as never)
   // Silnik pod wtyczką: pusty pasek, gdy wtyczka oddaje rysowanie dalej.
-  on('ui.render', ($, e) => {
-    const { Text } = $.ui.resolve(e) as never as { Text: (p: object) => unknown }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  on('ui.render', ($: any, e: unknown) => {
+    const { Text } = $.ui.resolve(e) as { Text: (p: object) => unknown }
     return Text({ children: 'silnik' }) as never
   })
-  on('fs.read', ($, e) => {
+  on('fs.read', ($: unknown, e: { path: string }) => {
     if (plik !== null && e.path.replace(/\\/g, '/').endsWith('.claude/zadania.json')) return { value: plik } as never
     throw new Error(`ENOENT ${e.path}`)
   })
@@ -181,7 +187,7 @@ function setup(on: Parameters<Parameters<typeof test>[1]>[1], plik: string | nul
 test('pasek MVP: postęp, termin i pilne zadania w kolejności', async ($, on) => {
   setup(on, MVP)
   await $.session.start({ cwd: '/x', surface: 'terminal', isInteractive: true })
-  await new Promise(r => setTimeout(r, 50))
+  await settle()
   const ui = await $.ui.mount({
     plugin: 'sztab',
     surface: 'terminal',
@@ -201,7 +207,7 @@ test('pasek MVP: postęp, termin i pilne zadania w kolejności', async ($, on) =
 test('pasek MVP: bez pola cel nic nie rysuje', async ($, on) => {
   setup(on, JSON.stringify({ zadania: [{ id: 'MNG-2', tytul: 'Lista wizyt', stan: 'w-toku', mvp: true }] }))
   await $.session.start({ cwd: '/x', surface: 'terminal', isInteractive: true })
-  await new Promise(r => setTimeout(r, 50))
+  await settle()
   const ui = await $.ui.mount({
     plugin: 'sztab',
     surface: 'terminal',
@@ -221,8 +227,8 @@ test('/pawers-setup zleca modelowi konfigurację według skilla', async ($, on) 
   })
   on('clock.after', () => ({ value: undefined }) as never)
   await $.session.start({ cwd: '/x', surface: 'terminal', isInteractive: true })
-  const out = await $.command.run({ command: 'pawers-setup', args: 'cel na 1 listopada' })
-  await new Promise(r => setTimeout(r, 50))
+  const out = await $.command.run({ command: 'pawers-setup', args: 'cel na 1 listopada' } as never)
+  await settle()
   expect(out.text).toContain('Konfiguracja Sztabu')
   expect(sent).toContain('sztab:setup')
   expect(sent).toContain('cel na 1 listopada')

@@ -18,7 +18,10 @@ względem „Base directory” tego skilla). Uruchamiaj go zawsze z katalogu rep
 ## 1. Stan
 
 Sprawdź po cichu, zanim zapytasz:
-- czy jest `.claude/zadania.json` (i `zadania/zadania.json`) — jeśli tak, pokaż, co w nim jest;
+- `node --version` — skrypt potrzebuje Node.js 18+. Brak Node'a: powiedz, że panel i pasek zadziałają
+  dopiero po jego instalacji (nodejs.org), i zakończ, chyba że człowiek chce wpisać plik ręcznie;
+- czy jest `.claude/zadania.json` albo `zadania/zadania.json` — jeśli tak, pokaż, co w nim jest. Panel
+  i skrypt używają `zadania/zadania.json`, gdy istnieje; wtedy konfiguruj **ten** plik;
 - czy `CLAUDE.md` już wspomina Sztab;
 - czy masz narzędzia Linear MCP (np. `list_issues`, `get_issue`) — od tego zależy pytanie 2.
 
@@ -48,7 +51,10 @@ Pokaż, co zrobisz, i poczekaj na „tak”. Potem:
    - Linear: pobierz otwarte zadania zespołu (Todo, In Progress, Review) i dla każdego
      `node <zadanie.mjs> <ID> <stan> "<tytuł>" [--mvp] --priorytet <0-4>`; `--mvp`, gdy pasuje do reguły
      z kroku 2. Stany: Todo/Backlog → `do-zrobienia`, In Progress → `w-toku`, In Review → `do-sprawdzenia`.
+     Do tego **wszystkie zamknięte zadania MVP** (Done) jako `zrobione --mvp` — bez nich pasek liczyłby
+     postęp od zera. Tytuł zaczynający się od `--` podaj po samym `--`: `… w-toku -- "--hotfix"`.
    - Plik: zapytaj, czy człowiek chce od razu wpisać kilka zadań MVP; dodaj je skryptem z `--mvp`.
+     Bez żadnego zadania MVP pasek pokaże tylko cel i podpowiedź, jak je oznaczyć.
 4. `CLAUDE.md` repo: dopisz krótką sekcję (albo zaktualizuj istniejącą):
    ```markdown
    ## Sztab

@@ -17,6 +17,7 @@ w panelu.
 ## Wymagania
 
 - **Agenci i skill** działają w każdym repo bez niczego więcej.
+- **Node.js 18+** w `PATH` — skrypt `zadanie.mjs`, który prowadzi plik zadań, to program Node'a.
 - **Zadania w panelu i pasek MVP** potrzebują źródła zadań — inaczej ich po prostu nie ma:
   - **Linear** podłączony do Claude Code (connector albo serwer MCP Lineara), z którego orkiestrator
     przepisuje zadania do pliku, **albo**
@@ -40,7 +41,7 @@ desktopowej. Aktualizacja: `claude plugin marketplace update pawers`.
 0. W repo uruchom `/pawers-setup`. Zapyta o źródło zadań (Linear albo plik) i cel MVP, dopisze wpis do
    `CLAUDE.md` i `.gitignore`. Kroki 1–3 poniżej robi wtedy za ciebie.
 1. W projekcie dopisz do `CLAUDE.md` jedno zdanie, np. *„Pracuj jako orkiestrator według skilla
-   `sztab`.”*, oraz to, czego skill nie wie o projekcie: tracker i prefiks zadań, gałąź roboczą, komendy
+   `sztab:sztab`.”*, oraz to, czego skill nie wie o projekcie: tracker i prefiks zadań, gałąź roboczą, komendy
    sprawdzające (typecheck, lint, testy, build), zasady, które agenci muszą znać.
 2. Otwórz panel komendą `/sztab`. Otwiera się też sam, gdy wystartuje pierwszy subagent.
 3. Agenci grupują się po id zadania na początku opisu wywołania (`MNG-140 Lista wizyt`). Pasuje każdy

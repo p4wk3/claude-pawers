@@ -38,10 +38,15 @@ function dayNumber(ms: number): number {
 
 function parseDay(iso: string): number | undefined {
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  return m ? Math.floor(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / DAY) : undefined
+  if (!m) return undefined
+  const t = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])))
+  // 2026-02-31 to nie 3 marca: zła data = brak terminu.
+  if (t.getUTCMonth() !== Number(m[2]) - 1 || t.getUTCDate() !== Number(m[3])) return undefined
+  return Math.floor(t.getTime() / DAY)
 }
 
 function za(days: number): string {
+  if (days === -1) return 'termin był wczoraj'
   if (days < 0) return `${-days} dni po terminie`
   if (days === 0) return 'termin dziś'
   if (days === 1) return 'termin jutro'
@@ -179,9 +184,10 @@ async function refreshZadania($: EngineInterface): Promise<void> {
   } catch {
     // brak albo zepsuty plik: sekcja zadań się nie pokazuje
   }
-  await update($, zadania, prev => (JSON.stringify(prev) === JSON.stringify(snap) ? prev : snap))
+  // Najpierw dzień: pasek nie może narysować terminu liczonego od dnia 0.
   const day = dayNumber(await $.clock.now())
   await update($, dzis, prev => (prev === day ? prev : day))
+  await update($, zadania, prev => (JSON.stringify(prev) === JSON.stringify(snap) ? prev : snap))
 }
 
 // Kolory w średnich tonach: czytelne na jasnym i ciemnym motywie.
@@ -303,7 +309,9 @@ export const register: Register = on => {
     await $.ui.open({ id: PANE, title: TITLE })
     await refreshCtx($)
 
-    return { text: 'Panel Sztab otwarty.' }
+    const zs = await read($, zadania)
+
+    return { text: zs ? 'Panel Sztab otwarty.' : 'Panel Sztab otwarty. Brak pliku zadań — zadania i pasek MVP ustawia /pawers-setup.' }
   })
 
   // Konfigurację prowadzi model według skilla sztab:setup; komenda tylko ją zleca.
@@ -398,7 +406,9 @@ export const register: Register = on => {
         <Text bold color="claude">
           {cel.nazwa}
         </Text>
-        {isDone ? (
+        {cel.wszystkie === 0 ? (
+          <Text dimColor>{'  brak zadań MVP: oznacz je (zadanie.mjs --mvp) albo /pawers-setup'}</Text>
+        ) : isDone ? (
           <Text color="success">{'  gotowe ✓'}</Text>
         ) : (
           <Text>
@@ -407,7 +417,7 @@ export const register: Register = on => {
             <Text dimColor>{` ${cel.zrobione}/${cel.wszystkie}`}</Text>
           </Text>
         )}
-        {days !== undefined && !isDone && <Text color={termColor}>{`  ·  ${za(days)}`}</Text>}
+        {days !== undefined && !isDone && cel.wszystkie > 0 && <Text color={termColor}>{`  ·  ${za(days)}`}</Text>}
         {shown.length > 0 && (
           <Text wrap="truncate-end">
             <Text dimColor>{'  │  pilne: '}</Text>
@@ -479,6 +489,12 @@ export const register: Register = on => {
             {snap?.costUsd !== undefined && <Text dimColor>{`koszt sesji $${snap.costUsd.toFixed(2)}`}</Text>}
             {snap?.error && <Text color="error">{snap.error}</Text>}
           </Box>
+
+          {!zs && (
+            <Text dimColor wrap="wrap">
+              Zadania i pasek MVP: podłącz Linear albo prowadź plik .claude/zadania.json — ustawi to /pawers-setup.
+            </Text>
+          )}
 
           {zs && (
             <Box flexDirection="column">
@@ -630,6 +646,13 @@ export const register: Register = on => {
               </Text>
             )}
             {snap.costUsd !== undefined && <Text dimColor>Koszt sesji: ${snap.costUsd.toFixed(2)}</Text>}
+          </Box>
+        )}
+        {!zs && (
+          <Box marginTop={1}>
+            <Text dimColor wrap="wrap">
+              Zadania i pasek MVP: podłącz Linear albo prowadź plik .claude/zadania.json — ustawi to /pawers-setup.
+            </Text>
           </Box>
         )}
         {zs && (
