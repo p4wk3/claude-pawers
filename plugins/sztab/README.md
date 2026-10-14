@@ -12,6 +12,14 @@ w panelu.
   orkiestrator, tobie przekazuje wynik po polsku.
 - **Pasek MVP** nad promptem — cel, postęp, ile dni zostało i najpilniejsze zadania do MVP.
 - **`/pawers-setup`** — konfiguracja w repo: źródło zadań, cel MVP, wpis w `CLAUDE.md`.
+- **`/raport`** — na start sesji: kalendarz z wczoraj i dziś (przypomnienia z `/podsumowanie`), otwarte
+  zadania, porządek w repo i propozycja pierwszego zadania. Na jednym ekranie telefonu.
+- **`/podsumowanie`** — na koniec sesji: co zrobione (z kosztem na zadanie), co zostało, propozycje
+  nowych zadań i przypomnienie w kalendarzu na jutro. Niczego nie tworzy bez twojego „tak”.
+- **Zasady rozmowy** — sekcja w prompcie systemowym głównej sesji (nie subagentów): odpowiedzi w twoim
+  języku, prostymi słowami, na jeden ekran telefonu, z `tl;dr` na końcu; raporty agentów przetłumaczone,
+  pytania tylko o decyzje produktowe. Wyłączasz je w repo plikiem `.claude/sztab.json`:
+  `{ "rozmowa": false }`.
 - **Koszt na zadanie** — przy każdym zadaniu w panelu: liczba agentów, tokeny i szacunkowy koszt
   według cennika API. Sumy narastają w `.claude/sztab-koszty.json`, skąd orkiestrator wpisuje je do
   komentarza w trackerze przy domknięciu.
@@ -32,6 +40,9 @@ w panelu.
   - **plik `.claude/zadania.json`** w repo, prowadzony ręcznie albo przez orkiestratora.
 
   Obie drogi ustawia komenda `/pawers-setup`.
+- **Kalendarz Google** (connector) — opcjonalny. Z nim `/raport` czyta wczorajsze i dzisiejsze
+  wydarzenia, a `/podsumowanie` zakłada przypomnienie na jutro; bez niego `/raport` pomija kalendarz,
+  a `/podsumowanie` daje tekst przypomnienia do skopiowania.
 
 ## Instalacja
 

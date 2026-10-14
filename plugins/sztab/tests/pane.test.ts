@@ -242,3 +242,62 @@ test('/pawers-setup zleca modelowi konfigurację według skilla', async ($, on) 
   expect(sent).toContain('sztab:setup')
   expect(sent).toContain('cel na 1 listopada')
 })
+
+for (const [command, skill] of [['raport', 'sztab:raport'], ['podsumowanie', 'sztab:podsumowanie']] as const) {
+  test(`/${command} zleca modelowi skill ${skill}`, async ($, on) => {
+    setup(on, null)
+    let sent = ''
+    on('prompt.submit', ($, e) => {
+      sent = e.text
+      return { drop: 'test' } as never
+    })
+    on('clock.after', () => ({ value: undefined }) as never)
+    await $.session.start({ cwd: '/x', surface: 'terminal', isInteractive: true })
+    await $.command.run({ command, args: 'tylko MNG-140' } as never)
+    await settle()
+    expect(sent).toContain(skill)
+    expect(sent).toContain('tylko MNG-140')
+  })
+}
+
+const SEKCJE = { sections: [{ id: 'intro', text: 'x', scope: 'shared' }] }
+const FAKTY = { model: 'm', promptModel: 'm', surfaces: [], tools: [], outputStyle: null }
+
+test('zasady rozmowy w prompcie głównej sesji, nie u teammate’a ani agenta', async ($, on) => {
+  setup(on, null)
+  on('prompt.compose', () => SEKCJE as never)
+  await $.session.start({ cwd: '/x', surface: 'terminal', isInteractive: true })
+  const main = await $.prompt.compose({ ...FAKTY, traits: [] })
+  const section = main.sections.find(s => s.id === 'sztab:rozmowa')
+  expect(section?.scope).toBe('session')
+  expect(section?.text).toContain('tl;dr')
+  expect(main.sections[0]?.id).toBe('intro')
+  const mate = await $.prompt.compose({ ...FAKTY, traits: ['teammate'] })
+  expect(mate.sections.some(s => s.id === 'sztab:rozmowa')).toBe(false)
+  const agent = await $.prompt.compose({ ...FAKTY, traits: [], agentId: 'a1' } as never)
+  expect(agent.sections.some(s => s.id === 'sztab:rozmowa')).toBe(false)
+})
+
+test('zasady rozmowy: wyłączone przez .claude/sztab.json, plik czytany raz', async ($, on) => {
+  let reads = 0
+  on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: 1000, window: 1000000, percent: 1 }, rateLimits: [] } }) as never)
+  on('agent.list', () => ({ value: [] }) as never)
+  on('command.register', () => ({ value: {} }) as never)
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('clock.now', () => ({ value: 1000 }) as never)
+  on('clock.every', () => ({ value: undefined }) as never)
+  on('fs.read', ($, e) => {
+    if (e.path.replace(/\\/g, '/').endsWith('.claude/sztab.json')) {
+      reads += 1
+      return { value: JSON.stringify({ rozmowa: false }) } as never
+    }
+    throw new Error(`ENOENT ${e.path}`)
+  })
+  on('prompt.compose', () => SEKCJE as never)
+  await $.session.start({ cwd: '/x', surface: 'terminal', isInteractive: true })
+  for (let i = 0; i < 2; i++) {
+    const out = await $.prompt.compose({ ...FAKTY, traits: [] })
+    expect(out.sections.some(s => s.id === 'sztab:rozmowa')).toBe(false)
+  }
+  expect(reads).toBe(1)
+})

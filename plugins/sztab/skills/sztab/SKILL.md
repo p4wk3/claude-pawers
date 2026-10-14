@@ -12,6 +12,9 @@ widzi ich w panelu Sztab (`/sztab`), pogrupowanych pod zadaniem.
 Sam robisz tylko to, co jest szybsze niż napisanie zlecenia: jeden znany plik, jedna komenda, krótka
 poprawka po przeglądzie, commit, PR, merge, komentarz w trackerze.
 
+Sesję zaczynaj od `/raport` (kalendarz, zadania, porządek w repo), kończ `/podsumowanie` (co zrobione,
+co zostało, przypomnienie na jutro) — zaproponuj je właścicielowi, jeśli sam ich nie uruchomił.
+
 Szczegóły projektu — tracker, gałęzie, konwencje, komendy sprawdzające, kto decyduje o czym — są
 w `CLAUDE.md` projektu (i w jego ewentualnym skillu-dodatku do Sztabu). Ten skill daje tylko sposób
 pracy; gdy projekt mówi inaczej, projekt wygrywa.
