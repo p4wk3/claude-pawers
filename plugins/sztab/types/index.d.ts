@@ -68,6 +68,8 @@ declare module 'claude-code' {
       open: string[]
       // Dzień (liczba dni od epoki, czas lokalny) do odliczania terminu celu.
       dzis: number
+      // Zasady rozmowy w prompcie (.claude/sztab.json `rozmowa`); null = jeszcze nie czytane.
+      rozmowa: boolean | null
     }
   }
 }

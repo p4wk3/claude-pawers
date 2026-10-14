@@ -3,6 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { AgentRow, CelSnap, CtxSnap, KosztZadania, ZadaniaSnap, ZadanieMvp } from '../types'
 import { avatarFor, bounce } from '../avatary/iso'
+import { OPISY, komendy } from './komendy'
 
 const PANE = 'sztab'
 const TITLE = 'Sztab'
@@ -335,6 +336,7 @@ async function refreshAgents($: EngineInterface): Promise<void> {
 }
 
 export const register: Register = on => {
+  komendy(on)
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'sztab',
@@ -344,6 +346,8 @@ export const register: Register = on => {
       name: 'pawers-setup',
       description: 'Konfiguruje Sztab w tym repo: źródło zadań (Linear albo plik JSON), cel MVP, CLAUDE.md',
     })
+    await $.command.register({ name: 'raport', description: OPISY.raport })
+    await $.command.register({ name: 'podsumowanie', description: OPISY.podsumowanie })
 
     let tick = 0
     $.clock.every(1000, () => {
