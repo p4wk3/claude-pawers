@@ -351,20 +351,19 @@ test('heredoc i potok do powłoki, ssh czy interpretera są rozbierane', async (
   expect(await gated($, "echo 'git push origin feature/x' | sh")).toBe(false)
 })
 
-test('subagent: katalog nieznany a HEAD/bieżąca gałąź do main = odmowa; znany z cd albo spawnu', async ($, on) => {
+test('subagent: bez cwd pracuje w katalogu sesji; cd liczy się tylko w swoim poleceniu', async ($, on) => {
   await started($, on)
   const call = (command: string, agentId: string) => $.tool.call({ tool: 'Bash', command, agentId } as never)
-  const unknown = await call('git push origin HEAD:main', 'w1')
-  expect(String(unknown.deny ?? unknown.text)).toContain('Run it from the main session')
-  expect(blocked(await call('git push', 'w1'))).toBe(true)
+  // Katalog sesji: HEAD bez werdyktu = odmowa z nazwanym sha.
+  const unreviewed = await call('git push origin HEAD:main', 'w1')
+  expect(String(unreviewed.deny ?? unreviewed.text)).toContain(`verdict: ok sha: ${HEAD}`)
   // Jawny sha/gałąź nie zależy od katalogu.
   await review($, `verdict: ok sha: ${FEAT}`)
   expect(blocked(await call('git push origin feature/x:main', 'w1'))).toBe(false)
-  // `cd <ścieżka absolutna>` w poleceniu agenta: katalog znany, także dla następnych poleceń.
+  // `cd` w jednym poleceniu nie przechodzi na następne.
   expect(blocked(await call('cd /wt/other && git status', 'w1'))).toBe(false)
-  const known = await call('git push origin HEAD:main', 'w1')
-  expect(String(known.deny ?? known.text)).not.toContain('working directory is unknown')
-  expect(String(known.deny ?? known.text)).toContain(`verdict: ok sha: ${HEAD}`)
+  const after = await call('git push origin HEAD:main', 'w1')
+  expect(String(after.deny ?? after.text)).toContain(`verdict: ok sha: ${HEAD}`)
   // Katalog z wywołania Agent (cwd).
   await $.agent.spawn({ prompt: 'x', description: 'PAW-4 Zmiana', subagentType: 'sztab:rzemieslnik', cwd: '../other' } as never)
   expect(blocked(await call('git push', 'r1'))).toBe(false)

@@ -568,45 +568,22 @@ const DENY_UNPARSED = (cmd: string) =>
   '(e.g. `git push origin <branch>`, `gh pr merge <n>`) so the gate can check the target.' +
   UNBLOCK_OWNER
 
-const DENY_AGENT_CWD = (cmd: string) =>
-  `sztab: blocked \`${cmd.slice(0, 80)}\`. This subagent's working directory is unknown to the gate, so HEAD or the ` +
-  'current branch may resolve in the wrong checkout before going into main/master. Run it from the main session or ' +
-  'pass an explicit sha/branch (e.g. `git push origin <sha>:main`, `gh pr merge <n>`), or prefix it with ' +
-  '`cd <absolute worktree path> &&`.' +
-  UNBLOCK_OWNER
 
 const DENY_DEPLOY = (cmd: string) =>
   `sztab: blocked \`${cmd.slice(0, 80)}\`. Deploys need the owner's explicit go-ahead. ` +
   'Ask the owner to start their prompt with "wdrażaj" (or "deploy now"); it allows the next deploy command once.'
 
-// Zwraca powód odmowy albo undefined, gdy polecenie może iść.
-// Czy bramka rozwiązuje coś względem katalogu roboczego: HEAD/@, bieżąca gałąź, PR bieżącej gałęzi.
-function relative(g: Gate): boolean {
-  if (g.kind === 'pr') return prView(g.args).target === undefined
-  return g.targets.some(t => t.dst === null || (t.src !== null && /^(HEAD|@)/.test(t.src)))
-}
 
 async function judge($: EngineInterface, cmd: string, ps: boolean, agentId?: string): Promise<string | undefined> {
   const a = analyze(cmd, ps)
-  // Subagent: katalog z agent.spawn albo z jego `cd /ścieżka` (worktree); bez niego nie wiemy, gdzie jest HEAD.
-  let base: string | undefined
-  let baseKnown = !agentId
-  if (agentId) {
-    const dirs = await read($, agentCwd)
-    const cd = a.cwd !== undefined && isAbs(a.cwd) ? a.cwd : undefined
-    if (cd && dirs[agentId] !== cd) await update($, agentCwd, prev => ({ ...prev, [agentId]: cd }))
-    base = dirs[agentId]
-    baseKnown = base !== undefined
-  }
+  // Subagent: katalog z agent.spawn (`cwd`), inaczej katalog sesji, jak dla samego Basha.
+  // `cd` w poleceniu liczy się tylko dla tego polecenia (powłoka agenta wraca do swojego katalogu).
+  const base = agentId ? (await read($, agentCwd))[agentId] : undefined
   const gates = a.gates.filter(mayHitMain).map(g => ({ ...g, cwd: g.cwd ? joinDir(base, g.cwd) : base }))
   if (gates.length === 0 && !a.deploy && !a.unparsed) return undefined
 
   const z = await read($, zgoda)
-  let reviewDenied = a.unparsed
-    ? DENY_UNPARSED(cmd)
-    : !baseKnown && gates.some(g => relative(g) && !(g.cwd && isAbs(g.cwd)))
-      ? DENY_AGENT_CWD(cmd)
-      : undefined
+  let reviewDenied = a.unparsed ? DENY_UNPARSED(cmd) : undefined
   if (!reviewDenied && gates.length > 0) {
     const all = await read($, przeglady)
     // Gałąź nieznana (błąd, odłączony HEAD) = może być main.
@@ -774,7 +751,7 @@ export function registerRepo(on: Parameters<Register>[0]): void {
     return next(e)
   }).catch(($, e, next) => next(e))
 
-  // Katalog subagenta, gdy wywołanie Agent go podało (worktree bez `cwd` poznamy po jego `cd`).
+  // Katalog subagenta, gdy wywołanie Agent go podało; bez niego agent pracuje w katalogu sesji.
   on('agent.spawn', { subagentType: /./ }, async ($, e, next) => {
     const result = await next(e)
     const id = result.agentId

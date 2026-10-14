@@ -139,9 +139,8 @@ Polecenia Bash i PowerShell, także subagentów:
 Bramka rozbiera też `bash -c "…"`, `pwsh -Command "…"`, `eval "…"` oraz tekst podany powłoce, `ssh`
 czy interpreterowi przez heredoc (`bash <<EOF`) albo potok (`echo … | sh`); poza tym tekst
 w cudzysłowach i heredocach nie liczy się jako polecenie. Subagent: HEAD i bieżąca gałąź są
-rozwiązywane w jego katalogu (z `cwd` wywołania Agent albo z jego `cd /ścieżka`); gdy go nie znamy,
-push/merge do `main` przez HEAD czy bieżącą gałąź jest blokowany — wtedy jawny sha/gałąź
-(`git push origin <sha>:main`) albo polecenie z głównej sesji. Zgoda z promptu działa na jedno
+rozwiązywane w jego katalogu z `cwd` wywołania Agent, a bez niego w katalogu sesji; `cd <katalog> &&`
+liczy się tylko w poleceniu, w którym stoi. Zgoda z promptu działa na jedno
 polecenie. Push na inne gałęzie i zakładanie PR-ów nie są blokowane.
 
 ## Rozwój
