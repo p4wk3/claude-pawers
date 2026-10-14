@@ -150,8 +150,13 @@ test('bramka: wdrożenie tylko po „wdrażaj”, raz', async ($, on) => {
   setup(on)
   await $.session.start({ cwd: '/x', surface: 'desktop', isInteractive: true })
   await settle()
+  // Słowo „deploy” w opisie commita, PR-a czy issue to nie wdrożenie.
+  for (const command of ['git commit -m "deploy fix"', 'gh pr create --title "Deploy docs"', 'gh issue create -t deploy']) {
+    expect(blocked(await $.tool.call({ tool: 'Bash', command } as never))).toBe(false)
+  }
   const denied = await $.tool.call({ tool: 'Bash', command: 'scripts/wdroz-mnghub sha-1234567 fryzapp' } as never)
   expect(String(denied.deny ?? denied.text)).toContain('wdrażaj')
+  expect(blocked(await $.tool.call({ tool: 'Bash', command: 'gh workflow run deploy.yml' } as never))).toBe(true)
   // Prompt wtyczki to nie zgoda właściciela.
   await $.prompt.submit({ text: 'wdrażaj' } as never)
   const fromPlugin = await $.tool.call({ tool: 'Bash', command: 'scripts/wdroz-mnghub sha-1234567 fryzapp' } as never)

@@ -164,11 +164,12 @@ function gateOf(words: string[]): Gate | undefined {
   return undefined
 }
 
-// Wdrożenie; push na inną gałąź i zakładanie PR-a nie są wdrożeniem, nawet z „deploy” w nazwie.
+// Wdrożenie. Git nic nie wdraża (push na main pilnuje osobna bramka), a gh tylko `gh workflow run`;
+// dzięki temu commit czy PR ze słowem „deploy” w opisie nie są blokowane.
 function isDeploy(seg: { text: string; words: string[] }): boolean {
-  if (!DEPLOY_RE.test(seg.text) || gitArgs(seg.words)?.[0] === 'push') return false
+  if (!DEPLOY_RE.test(seg.text) || gitArgs(seg.words) !== undefined) return false
   const i = seg.words.findIndex(w => isExe(w, 'gh'))
-  return !(i >= 0 && seg.words[i + 1] === 'pr' && seg.words[i + 2] === 'create')
+  return i < 0 || (seg.words[i + 1] === 'workflow' && seg.words[i + 2] === 'run')
 }
 
 // Bez odczytu repo: czy push/merge może iść do main (gałąź nieznana = może).

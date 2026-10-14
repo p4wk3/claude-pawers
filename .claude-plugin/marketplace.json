@@ -1,12 +1,14 @@
 {
   "name": "pawers",
-  "owner": { "name": "p4wk3" },
+  "owner": {
+    "name": "p4wk3"
+  },
   "description": "Pluginy, skille i mody p4wk3 do Claude Code",
   "plugins": [
     {
       "name": "sztab",
       "source": "./plugins/sztab",
-      "description": "Orkiestrator z zespołem subagentów (zwiadowca, badacz, rzemieślnik, recenzent) i panel /sztab na żywo"
+      "description": "Orkiestrator z 5 subagentami, panel /sztab (agenci, repo, koszty), bramka przeglądu przed main, pasek MVP, /raport i /podsumowanie"
     }
   ]
 }
