@@ -94,7 +94,9 @@ Agent nie zna rozmowy. Zlecenie ma wystarczyć samo:
 4. **Test na żywo** tam, gdzie się da: uruchomiona aplikacja, przeglądarka, prawdziwy przebieg.
    Produkcja tylko za wyraźną zgodą właściciela.
 5. CI zielone → merge (jeśli projekt na to pozwala bez właściciela). Komentarz w trackerze: co zmienione
-   i jak przetestowane, prostym językiem; zadanie do Review albo Done.
+   i jak przetestowane, prostym językiem; zadanie do Review albo Done. Na końcu komentarza linia kosztu
+   z `.claude/sztab-koszty.json` (panel sumuje tam agentów per zadanie): `Agenci: 14 · 38 min · ≈$1.20
+   (cennik API)`. Koszt to szacunek pracy subagentów, bez Twojej własnej rozmowy.
 6. Właściciel dostaje 2–4 zdania: co zrobione, co wymaga jego decyzji. Bez surowych raportów agentów.
 7. Rzeczy spoza zadania, które agenci zgłosili — nowe zadania w trackerze, nie robione od razu.
 8. Posprzątaj: worktree agentów po merge'u usuń (`git worktree remove`), scalone gałęzie skasuj lokalnie.

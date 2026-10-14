@@ -12,7 +12,12 @@ export type AgentRow = {
   activity?: string
   // Początek odpowiedzi z turn.complete, do rozwinięcia pod wierszem.
   answer?: string
+  // Szacunek kosztu w USD z cennika API (subskrypcja płaci inaczej; to miara skali).
+  costUsd?: number
 }
+
+// Sumy na zadanie, zapisywane do .claude/sztab-koszty.json (narastająco między sesjami).
+export type KosztZadania = { agenci: number; tokeny: number; kosztUsd: number; minuty: number }
 
 export type CtxCategory = { name: string; tokens: number }
 

@@ -62,6 +62,11 @@ test('zadania z pliku, grupowanie po id, czynność z tool.call, tokeny i podgl�
   on('agent.spawn', ($, e) => ({ model: 'claude-sonnet-5-5', agentId: ids[e.description] ?? 'ax' }) as never)
   on('tool.call', () => ({ result: {}, text: '' }) as never)
   on('turn.complete', ($, e) => ({ text: e.answer, usage: e.usage }))
+  const written: Record<string, string> = {}
+  on('fs.write', ($, e) => {
+    written[e.path.replace(/\\/g, '/')] = e.text
+    return { value: undefined } as never
+  })
 
   await $.session.start({ cwd: '/x', surface: 'desktop', isInteractive: true })
   await $.agent.spawn({ prompt: 'x', description: 'VIN-148 Poprawki ściągi', subagentType: 'rzemieslnik' } as never)
@@ -77,6 +82,7 @@ test('zadania z pliku, grupowanie po id, czynność z tool.call, tokeny i podgl�
     reason: 'answer',
     usage: { input_tokens: 200, cache_read_input_tokens: 1000, cache_creation_input_tokens: 300, output_tokens: 500, model: 'claude-sonnet-5-5' },
   })
+  await new Promise(r => (globalThis as unknown as { setTimeout: (f: () => void, ms: number) => void }).setTimeout(() => r(undefined), 50))
 
   for (const surface of ['desktop', 'terminal'] as const) {
     const ui = await $.ui.mount({
@@ -97,6 +103,9 @@ test('zadania z pliku, grupowanie po id, czynność z tool.call, tokeny i podgl�
     expect(drawn).toContain('Bez zadania')
     expect(drawn).toContain('czyta register.tsx')
     expect(drawn).toContain('2k tokenów')
+    expect(drawn).toContain('≈<$0.01')
+    const koszty = Object.entries(written).find(([path]) => path.endsWith('.claude/sztab-koszty.json'))?.[1]
+    expect(JSON.parse(koszty ?? '{}')['VIN-148']).toMatchObject({ agenci: 1, tokeny: 2000 })
     if (surface === 'desktop') {
       expect(drawn).toContain('kto pracował kiedy')
       expect(drawn).toContain('animateTransform')

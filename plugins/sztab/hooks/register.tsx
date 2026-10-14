@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AgentRow, CelSnap, CtxSnap, ZadaniaSnap, ZadanieMvp } from '../types'
+import type { AgentRow, CelSnap, CtxSnap, KosztZadania, ZadaniaSnap, ZadanieMvp } from '../types'
 import { avatarFor, bounce } from '../avatary/iso'
 
 const PANE = 'sztab'
@@ -79,6 +79,63 @@ function celOf(z: PlikZadan): CelSnap | null {
 }
 
 const RUNNING = new Set(['pending', 'running', 'waiting'])
+
+// Cennik API w USD za milion tokenów: [wejście, wyjście, odczyt cache]. Zapis do cache = 1,25 × wejście.
+// Stan z 2026-10; nieznany model liczy się jak Sonnet.
+const PRICES: [RegExp, number, number, number][] = [
+  [/fable|mythos/, 10, 50, 0.25],
+  [/opus-5-5/, 4, 20, 0.2],
+  [/opus/, 5, 25, 0.5],
+  [/sonnet-5/, 2, 10, 0.2],
+  [/sonnet/, 3, 15, 0.3],
+  [/haiku-5/, 0.1, 0.5, 0.01],
+  [/haiku/, 1, 5, 0.1],
+]
+
+type Usage = {
+  input_tokens: number
+  output_tokens: number
+  cache_read_input_tokens: number
+  cache_creation_input_tokens: number
+  model?: string
+}
+
+function costOf(u: Usage, fallbackModel: string): number {
+  const id = (u.model ?? fallbackModel).toLowerCase()
+  const [, inp, out, read] = PRICES.find(([re]) => re.test(id)) ?? [/./, 2, 10, 0.2]
+  return (
+    (u.input_tokens * inp + u.cache_creation_input_tokens * inp * 1.25 + u.cache_read_input_tokens * read + u.output_tokens * out) /
+    1e6
+  )
+}
+
+function usd(n: number): string {
+  return n < 0.01 ? '<$0.01' : `$${n.toFixed(2)}`
+}
+
+const KOSZTY = '.claude/sztab-koszty.json'
+
+// Dopisuje agenta do sum zadania w pliku repo, żeby orkiestrator mógł podać koszt w trackerze.
+async function zapiszKoszt($: EngineInterface, task: string, tokens: number, cost: number, ms: number): Promise<void> {
+  let all: Record<string, KosztZadania> = {}
+  try {
+    all = JSON.parse(await $.fs.read(KOSZTY)) as Record<string, KosztZadania>
+  } catch {
+    // brak pliku: zaczynamy od zera
+  }
+  const prev = all[task] ?? { agenci: 0, tokeny: 0, kosztUsd: 0, minuty: 0 }
+  all[task] = {
+    agenci: prev.agenci + 1,
+    tokeny: prev.tokeny + tokens,
+    kosztUsd: Math.round((prev.kosztUsd + cost) * 10000) / 10000,
+    minuty: Math.round((prev.minuty + ms / 60000) * 10) / 10,
+  }
+  try {
+    await $.fs.write(KOSZTY, `${JSON.stringify(all, null, 2)}\n`)
+  } catch {
+    // repo tylko do odczytu albo brak .claude: koszt zostaje tylko w panelu
+  }
+}
 
 // "VIN-148 Poprawki ściągi" -> zadanie VIN-148, opis "Poprawki ściągi".
 // Dowolny prefiks w stylu Lineara/Jiry: wielkie litery, myślnik, numer.
@@ -365,12 +422,15 @@ export const register: Register = on => {
       const used = u ? u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens + u.output_tokens : 0
       const text = e.answer.trim()
       const answer = text ? (text.length > 300 ? `${text.slice(0, 300)}…` : text) : undefined
+      const before = (await read($, agents)).find(r => r.id === e.agentId)
+      const cost = u ? costOf(u, before?.model ?? '') : 0
       await update($, agents, rows =>
         rows.map(row =>
           row.id === e.agentId
             ? {
                 ...row,
                 tokens: row.tokens + used,
+                costUsd: (row.costUsd ?? 0) + cost,
                 answer: answer ?? row.answer,
                 status: e.reason === 'answer' ? 'completed' : 'failed',
                 endedAt: t,
@@ -379,6 +439,8 @@ export const register: Register = on => {
         ),
       )
       await update($, now, () => t)
+      const task = before ? splitTask(before.description).task : undefined
+      if (task && before) void zapiszKoszt($, task, used, cost, t - before.startedAt)
     } else {
       await refreshCtx($)
       await refreshZadania($)
@@ -446,6 +508,11 @@ export const register: Register = on => {
     const opened = await read($, open)
     const groupTitle = (g: Group) => (g.task ? `${g.task}${zs?.tytuly[g.task] ? ` · ${zs.tytuly[g.task]}` : ''}` : 'Bez zadania')
     const counters = zs ? `do zrobienia ${zs.doZrobienia} · do sprawdzenia ${zs.doSprawdzenia} · zrobione ${zs.zrobione}` : ''
+    const statsOf = (g: Group) => {
+      const cost = g.rows.reduce((acc, r) => acc + (r.costUsd ?? 0), 0)
+      const tokens = g.rows.reduce((acc, r) => acc + r.tokens, 0)
+      return `${g.rows.length} ag. · ${kTokens(tokens)} tok.${cost > 0 ? ` · ≈${usd(cost)}` : ''}`
+    }
     const endOf = (r: AgentRow) => (RUNNING.has(r.status) ? Math.max(t, r.startedAt) : r.endedAt ?? r.startedAt)
 
     if (e.surface === 'desktop') {
@@ -527,9 +594,12 @@ export const register: Register = on => {
               return (
                 <Box key={`grupa-${g.key}`} flexDirection="column" marginTop={1}>
                   {showHeader && (
-                    <Text wrap="truncate-end" dimColor={g.task === undefined}>
-                      {g.task ? <Text bold>{groupTitle(g)}</Text> : groupTitle(g)}
-                    </Text>
+                    <Box flexDirection="row" justifyContent="space-between" gap={1}>
+                      <Text wrap="truncate-end" dimColor={g.task === undefined}>
+                        {g.task ? <Text bold>{groupTitle(g)}</Text> : groupTitle(g)}
+                      </Text>
+                      <Text dimColor>{statsOf(g)}</Text>
+                    </Box>
                   )}
                   {lane.length >= 2 && (
                     <Box flexDirection="column" marginTop={1}>
@@ -676,6 +746,7 @@ export const register: Register = on => {
             {(g.task !== undefined || all.length > 1) && (
               <Text wrap="truncate-end" bold={g.task !== undefined} dimColor={g.task === undefined}>
                 {groupTitle(g)}
+                <Text dimColor bold={false}>{`  ${statsOf(g)}`}</Text>
               </Text>
             )}
             {g.rows.map(r => {

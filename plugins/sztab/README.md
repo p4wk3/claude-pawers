@@ -10,6 +10,9 @@ w panelu.
   (wykonanie zmiany), `sztab:recenzent` (przegląd). Wszyscy raportują zwięźle, w stałym formacie.
 - **Pasek MVP** nad promptem — cel, postęp, ile dni zostało i najpilniejsze zadania do MVP.
 - **`/pawers-setup`** — konfiguracja w repo: źródło zadań, cel MVP, wpis w `CLAUDE.md`.
+- **Koszt na zadanie** — przy każdym zadaniu w panelu: liczba agentów, tokeny i szacunkowy koszt
+  według cennika API. Sumy narastają w `.claude/sztab-koszty.json`, skąd orkiestrator wpisuje je do
+  komentarza w trackerze przy domknięciu.
 - **Panel `/sztab`** — subagenci na żywo, pogrupowani po id zadania, z bieżącą czynnością, czasem,
   tokenami i podglądem wyniku. Do tego zapełnienie okna kontekstu i koszt sesji oraz zadania w toku.
   Działa w terminalu i w aplikacji desktopowej.
@@ -76,7 +79,8 @@ z `"mvp": true`, które nie są zrobione: najpierw w toku, potem do zrobienia, w
 priorytetu (1 = pilne). Termin żółknie na tydzień przed, czerwienieje na 3 dni przed.
 
 Stany: `do-zrobienia`, `w-toku`, `do-sprawdzenia`, `zrobione`. Orkiestrator prowadzi plik skryptem
-`skills/sztab/zadanie.mjs`. Dodaj `.claude/zadania.json` do `.gitignore` projektu.
+`skills/sztab/zadanie.mjs`. Dodaj `.claude/zadania.json` i `.claude/sztab-koszty.json` do `.gitignore`
+projektu.
 
 ## Rozwój
 
