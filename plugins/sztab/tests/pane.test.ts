@@ -299,7 +299,8 @@ test('zasady rozmowy: wyłączone przez .claude/sztab.json, plik czytany raz', a
     const out = await $.prompt.compose({ ...FAKTY, traits: [] })
     expect(out.sections.some(s => s.id === 'sztab:rozmowa')).toBe(false)
   }
-  expect(reads).toBe(1)
+  // Raz zasady rozmowy (przy pierwszym compose), raz bramka (przy starcie sesji); nie przy każdym compose.
+  expect(reads).toBe(2)
 })
 
 test('agent wznowiony wiadomością wraca do „pracuje” przy pierwszej czynności', async ($, on) => {

@@ -10,6 +10,18 @@ const repo = atom({ plugin: 'sztab', key: 'repo' } as const, null)
 const przeglady = atom({ plugin: 'sztab', key: 'przeglady' } as const, {})
 const zgoda = atom({ plugin: 'sztab', key: 'zgoda' } as const, { bezPrzegladu: false, wdrazaj: false })
 const agentCwd = atom({ plugin: 'sztab', key: 'agentCwd' } as const, {})
+// Bramka przeglądu przed main; repo, które commituje prosto na main, wyłącza ją w .claude/sztab.json:
+// { "bramka": { "main": false } }. Bramka wdrożeń działa zawsze.
+const bramkaMain = atom({ plugin: 'sztab', key: 'bramkaMain' } as const, true)
+
+async function loadBramka($: EngineInterface): Promise<boolean> {
+  try {
+    const cfg = JSON.parse(await $.fs.read('.claude/sztab.json')) as { bramka?: { main?: boolean } }
+    return cfg.bramka?.main !== false
+  } catch {
+    return true
+  }
+}
 // Ten sam klucz co w register.tsx: typ agenta po id.
 const agents = atom({ plugin: 'sztab', key: 'agents' } as const, [])
 
@@ -579,11 +591,13 @@ async function judge($: EngineInterface, cmd: string, ps: boolean, agentId?: str
   // Subagent: katalog z agent.spawn (`cwd`), inaczej katalog sesji, jak dla samego Basha.
   // `cd` w poleceniu liczy się tylko dla tego polecenia (powłoka agenta wraca do swojego katalogu).
   const base = agentId ? (await read($, agentCwd))[agentId] : undefined
-  const gates = a.gates.filter(mayHitMain).map(g => ({ ...g, cwd: g.cwd ? joinDir(base, g.cwd) : base }))
-  if (gates.length === 0 && !a.deploy && !a.unparsed) return undefined
+  const mainGate = await read($, bramkaMain)
+  const gates = mainGate ? a.gates.filter(mayHitMain).map(g => ({ ...g, cwd: g.cwd ? joinDir(base, g.cwd) : base })) : []
+  const unparsed = mainGate && a.unparsed
+  if (gates.length === 0 && !a.deploy && !unparsed) return undefined
 
   const z = await read($, zgoda)
-  let reviewDenied = a.unparsed ? DENY_UNPARSED(cmd) : undefined
+  let reviewDenied = unparsed ? DENY_UNPARSED(cmd) : undefined
   if (!reviewDenied && gates.length > 0) {
     const all = await read($, przeglady)
     // Gałąź nieznana (błąd, odłączony HEAD) = może być main.
@@ -719,6 +733,8 @@ export function registerRepo(on: Parameters<Register>[0]): void {
     const result = await next(e)
     const saved = await loadPrzeglady($)
     await update($, przeglady, prev => ({ ...saved, ...prev }))
+    const main = await loadBramka($)
+    await update($, bramkaMain, () => main)
     $.clock.every(15000, () => void refreshRepo($))
     void refreshRepo($)
     return result

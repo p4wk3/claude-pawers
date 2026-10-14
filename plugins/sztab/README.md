@@ -143,6 +143,9 @@ rozwiązywane w jego katalogu z `cwd` wywołania Agent, a bez niego w katalogu s
 liczy się tylko w poleceniu, w którym stoi. Zgoda z promptu działa na jedno
 polecenie. Push na inne gałęzie i zakładanie PR-ów nie są blokowane.
 
+Repo, w którym commitujesz prosto na `main` (bez gałęzi i PR-ów), wyłącza bramkę przeglądu plikiem
+`.claude/sztab.json`: `{ "bramka": { "main": false } }`. Bramka wdrożeń działa dalej.
+
 ## Rozwój
 
 ```bash

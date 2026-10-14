@@ -36,6 +36,10 @@ Zapytaj, skąd mają być zadania:
 - **Plik JSON** — zadania prowadzi człowiek albo orkiestrator, bez trackera. Ustal krótki prefiks
   (2–4 wielkie litery, np. `APP`).
 
+Zapytaj też, czy w tym repo pracuje się na gałęziach z PR-ami, czy commituje prosto na `main`.
+Prosto na `main` — zapisz w `.claude/sztab.json` `{ "bramka": { "main": false } }` (scal z istniejącym
+plikiem), inaczej każdy push czekałby na recenzenta.
+
 ## 3. Cel MVP
 
 Zapytaj o nazwę celu (np. „MVP fryz.app”) i opcjonalny termin (`RRRR-MM-DD`). Brak celu = brak paska;

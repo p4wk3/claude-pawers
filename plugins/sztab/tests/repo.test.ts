@@ -376,3 +376,11 @@ test('wdrożenie po sudo/env/nice/timeout z flagami', async ($, on) => {
   }
   expect(await gated($, 'sudo -u root cat deploy.log')).toBe(false)
 })
+
+test('.claude/sztab.json bramka.main=false: push na main przechodzi, wdrożenie nadal czeka na zgodę', async ($, on) => {
+  await started($, on, git, {}, { '.claude/sztab.json': JSON.stringify({ bramka: { main: false } }) })
+  expect(await gated($, 'git push')).toBe(false)
+  expect(await gated($, 'git push origin HEAD:main')).toBe(false)
+  expect(await gated($, 'gh pr merge 12')).toBe(false)
+  expect(await gated($, './scripts/wdroz-mnghub sha-1234567')).toBe(true)
+})

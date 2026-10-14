@@ -1,6 +1,6 @@
 {
   "name": "sztab",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Orkiestrator z 5 subagentami (zwiadowca, badacz, rzemieślnik, recenzent, tester), panel /sztab z repo i kosztami, bramka przeglądu, pasek MVP, /raport, /podsumowanie, /pawers-setup",
   "author": {
     "name": "p4wk3",

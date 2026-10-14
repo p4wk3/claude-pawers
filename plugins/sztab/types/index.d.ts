@@ -96,6 +96,8 @@ declare module 'claude-code' {
       // Zgoda z ostatniego promptu właściciela, na jedno polecenie.
       zgoda: { bezPrzegladu: boolean; wdrazaj: boolean }
       // Katalog roboczy subagenta po id (z agent.spawn albo z `cd <ścieżka absolutna>` w jego poleceniach).
+      // Bramka przeglądu przed main (.claude/sztab.json `bramka.main`, domyślnie włączona).
+      bramkaMain: boolean
       agentCwd: Record<string, string>
     }
   }
