@@ -4,6 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { AgentRow, CelSnap, CtxSnap, KosztZadania, ZadaniaSnap, ZadanieMvp } from '../types'
 import { avatarFor, bounce } from '../avatary/iso'
 import { OPISY, komendy } from './komendy'
+import { registerRepo, repoDesktop, repoTerminal } from './repo'
 
 const PANE = 'sztab'
 const TITLE = 'Sztab'
@@ -337,6 +338,8 @@ async function refreshAgents($: EngineInterface): Promise<void> {
 
 export const register: Register = on => {
   komendy(on)
+  registerRepo(on)
+
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'sztab',
@@ -517,6 +520,8 @@ export const register: Register = on => {
       const tokens = g.rows.reduce((acc, r) => acc + r.tokens, 0)
       return `${g.rows.length} ag. · ${kTokens(tokens)} tok.${cost > 0 ? ` · ≈${usd(cost)}` : ''}`
     }
+    const repoSnap = (await read($, { plugin: 'sztab', key: 'repo' } as const)) ?? null
+    const werdykty = (await read($, { plugin: 'sztab', key: 'przeglady' } as const)) ?? {}
     const endOf = (r: AgentRow) => (RUNNING.has(r.status) ? Math.max(t, r.startedAt) : r.endedAt ?? r.startedAt)
 
     if (e.surface === 'desktop') {
@@ -583,6 +588,8 @@ export const register: Register = on => {
               <Text dimColor wrap="truncate-end">{counters}</Text>
             </Box>
           )}
+
+          {repoDesktop({ Box, Text }, repoSnap, werdykty)}
 
           <Box flexDirection="column">
             <Box flexDirection="row" justifyContent="space-between">
@@ -740,6 +747,7 @@ export const register: Register = on => {
             <Text dimColor wrap="truncate-end">{counters}</Text>
           </Box>
         )}
+        {repoTerminal({ Box, Text }, repoSnap, werdykty)}
         <Text> </Text>
         <Text bold>
           Agenci{rows.length > 0 ? ` — pracuje ${running.length}, skończonych ${done.length}` : ''}

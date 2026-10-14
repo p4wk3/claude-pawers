@@ -26,6 +26,8 @@ w panelu.
 - **Panel `/sztab`** — subagenci na żywo, pogrupowani po id zadania, z bieżącą czynnością, czasem,
   tokenami i podglądem wyniku. Do tego zapełnienie okna kontekstu i koszt sesji oraz zadania w toku.
   Działa w terminalu i w aplikacji desktopowej.
+- **Sekcja Repo i bramka** — w panelu gałąź, zmiany, ostatnie commity z oceną recenzenta i PR z CI.
+  Merge/push do `main` i wdrożenia czekają na przegląd albo zgodę właściciela.
 
 ## Wymagania
 
@@ -97,6 +99,29 @@ priorytetu (1 = pilne). Termin żółknie na tydzień przed, czerwienieje na 3 d
 Stany: `do-zrobienia`, `w-toku`, `do-sprawdzenia`, `zrobione`. Orkiestrator prowadzi plik skryptem
 `skills/sztab/zadanie.mjs`. Dodaj `.claude/zadania.json` i `.claude/sztab-koszty.json` do `.gitignore`
 projektu.
+
+### Repo w panelu
+
+Sekcja „Repo” (między Zadaniami a Agentami, tylko w repozytorium gita) odświeża się co 15 s i po
+każdej turze: `main · ↑2 ↓0` (albo `brak upstreamu`), `3 pliki · +40 −12`, trzy ostatnie commity
+(`↑` = jeszcze nie wypchnięty) i otwarty PR gałęzi z CI (`PR #12 · CI ✓`, potrzebny `gh`).
+
+Ocena commita pochodzi od `sztab:recenzent`: ostatnia linia jego odpowiedzi
+`verdict: ok|changes|reject sha: <sha>` oznacza commit jako ✓ przejrzany, ⚠ uwagi albo ✗ odrzucony;
+bez niej ○ nieprzejrzany. Werdykty zostają w `.claude/sztab-przeglady.json` (dodaj do `.gitignore`).
+
+### Bramka
+
+Polecenia Bash i PowerShell, także subagentów:
+
+- **Merge/push do `main`/`master`** — `gh pr merge`, `git push` na `main` (`origin main`, `HEAD:main`,
+  zwykły `git push` na gałęzi `main`) i `git merge` na `main` przechodzą tylko wtedy, gdy commit (HEAD,
+  a przy `gh pr merge` głowa PR-a) ma werdykt `ok`. Odblokowanie: recenzent na tej zmianie albo
+  „bez przeglądu” w twoim prompcie.
+- **Wdrożenie** — `wdroz…`, `deploy`, `supabase db push`, `vercel --prod`, `fly deploy` przechodzą
+  tylko po „wdrażaj” w twoim ostatnim prompcie.
+
+Zgoda z promptu działa na jedno polecenie. Push na inne gałęzie i zakładanie PR-ów nie są blokowane.
 
 ## Rozwój
 
