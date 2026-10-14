@@ -97,8 +97,8 @@ z `"mvp": true`, które nie są zrobione: najpierw w toku, potem do zrobienia, w
 priorytetu (1 = pilne). Termin żółknie na tydzień przed, czerwienieje na 3 dni przed.
 
 Stany: `do-zrobienia`, `w-toku`, `do-sprawdzenia`, `zrobione`. Orkiestrator prowadzi plik skryptem
-`skills/sztab/zadanie.mjs`. Dodaj `.claude/zadania.json` i `.claude/sztab-koszty.json` do `.gitignore`
-projektu.
+`skills/sztab/zadanie.mjs`. Dodaj `.claude/zadania.json`, `.claude/sztab-koszty.json` i `.claude/sztab-przeglady.json` do
+`.gitignore` projektu.
 
 ### Repo w panelu
 
@@ -108,20 +108,33 @@ każdej turze: `main · ↑2 ↓0` (albo `brak upstreamu`), `3 pliki · +40 −1
 
 Ocena commita pochodzi od `sztab:recenzent`: ostatnia linia jego odpowiedzi
 `verdict: ok|changes|reject sha: <sha>` oznacza commit jako ✓ przejrzany, ⚠ uwagi albo ✗ odrzucony;
-bez niej ○ nieprzejrzany. Werdykty zostają w `.claude/sztab-przeglady.json` (dodaj do `.gitignore`).
+bez niej ○ nieprzejrzany. Werdykty zostają w `.claude/sztab-przeglady.json` (dodaj do `.gitignore`);
+przy starcie sesji wtyczka bierze z pliku tylko werdykty commitów, które repo zna.
+
+Jeśli projekt ma własnego recenzenta, jego odpowiedź też musi kończyć się linią
+`verdict: ok|changes|reject sha: <sha>` — inaczej do przeglądu przed merge'em użyj `sztab:recenzent`.
 
 ### Bramka
 
 Polecenia Bash i PowerShell, także subagentów:
 
-- **Merge/push do `main`/`master`** — `gh pr merge`, `git push` na `main` (`origin main`, `HEAD:main`,
-  zwykły `git push` na gałęzi `main`) i `git merge` na `main` przechodzą tylko wtedy, gdy commit (HEAD,
-  a przy `gh pr merge` głowa PR-a) ma werdykt `ok`. Odblokowanie: recenzent na tej zmianie albo
-  „bez przeglądu” w twoim prompcie.
-- **Wdrożenie** — `wdroz…`, `deploy`, `supabase db push`, `vercel --prod`, `fly deploy` przechodzą
-  tylko po „wdrażaj” w twoim ostatnim prompcie.
+- **Merge/push do `main`/`master`** (tylko te gałęzie; push i merge do `development` czy innych
+  gałęzi przechodzą) — `git push` na `main` (`origin main`, `feature:main`, `HEAD:main`, zwykły
+  `git push` na gałęzi `main`), `git merge` na `main` i `gh pr merge` PR-a z bazą `main` przechodzą
+  tylko wtedy, gdy commit, który tam trafia, ma werdykt `ok`: źródło refspecu przy pushu, scalany ref
+  przy `git merge`, głowa PR-a przy `gh pr merge`. Bramka uwzględnia `cd <katalog> &&` i `git -C`;
+  gdy gałęzi nie da się odczytać, `gh` nie odpowie albo polecenia nie da się rozebrać (np. push
+  w `$(…)`), traktuje je jak push do `main`. Odblokowanie: recenzent na tym commicie albo prompt
+  zaczynający się od „bez przeglądu” (albo „skip review”).
+- **Wdrożenie** — polecenie, którego pierwsze słowo to skrypt `wdroz…`/`…deploy…`, oraz
+  `supabase db push`, `vercel … --prod`, `fly deploy`, `gh workflow run <deploy|wdroz…>` i takie
+  polecenia przez `ssh <host> '…'`, przechodzą tylko po prompcie zaczynającym się od „wdrażaj” (albo
+  „deploy now”). „Nie wdrażaj jeszcze” zgodą nie jest. `cat docs/deploy.md` czy commit ze słowem
+  „deploy” to nie wdrożenie.
 
-Zgoda z promptu działa na jedno polecenie. Push na inne gałęzie i zakładanie PR-ów nie są blokowane.
+Bramka rozbiera też `bash -c "…"`, `pwsh -Command "…"` i `eval "…"`; tekst w cudzysłowach i heredocach
+nie liczy się jako polecenie. Zgoda z promptu działa na jedno polecenie. Push na inne gałęzie
+i zakładanie PR-ów nie są blokowane.
 
 ## Rozwój
 

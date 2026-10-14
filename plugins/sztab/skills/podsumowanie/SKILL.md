@@ -21,7 +21,11 @@ Szczegóły projektu (tracker, prefiks zadań, gałąź robocza) są w `CLAUDE.m
 
 - Niezacommitowane zmiany i niewypchnięte commity.
 - Zadania w toku.
-- Worktree i scalone gałęzie do posprzątania (`git worktree list`, `git branch --merged`).
+- Worktree i scalone gałęzie do posprzątania (`git worktree list`, `git branch --merged`). Sprzątanie
+  to tylko propozycja (jeden krok do potwierdzenia, z listą: co usuniesz). Zasady:
+  - nic nie kasujesz bez „tak” właściciela;
+  - nigdy nie wyrzucasz niezacommitowanej pracy — taką najwyżej zgłaszasz albo proponujesz commit;
+  - worktree z niezacommitowanymi zmianami nie ruszasz.
 - Rzeczy, które agenci zgłosili jako spoza zadania — zaproponuj z nich nowe zadania. Zakładaj je
   (Linear albo `zadanie.mjs` w `.claude/zadania.json`) **dopiero po „tak”**.
 

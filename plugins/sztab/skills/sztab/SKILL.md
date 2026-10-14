@@ -119,7 +119,8 @@ właścicielowi przekładasz wynik na prosty polski, nigdy nie wklejasz surowego
 
 Ostatnia linia raportu recenzenta to zawsze `verdict: ok|changes|reject sha: <sha>`. Czyta ją panel
 i bramka merge'a: merge tylko przy `verdict: ok` dla tego samego sha, które idzie do merge'a. Po
-poprawkach (nowy commit) — nowy przegląd.
+poprawkach (nowy commit) — nowy przegląd. Jeśli projekt ma własnego recenzenta, jego odpowiedź też
+musi kończyć się tą linią; jeśli nie kończy, przegląd przed merge'em do `main` zleć `sztab:recenzent`.
 
 ## 5. Domknięcie
 
@@ -134,7 +135,11 @@ poprawkach (nowy commit) — nowy przegląd.
    (cennik API)`. Koszt to szacunek pracy subagentów, bez Twojej własnej rozmowy.
 6. Właściciel dostaje 2–4 zdania: co zrobione, co wymaga jego decyzji. Bez surowych raportów agentów.
 7. Rzeczy spoza zadania, które agenci zgłosili — nowe zadania w trackerze, nie robione od razu.
-8. Posprzątaj: worktree agentów po merge'u usuń (`git worktree remove`), scalone gałęzie skasuj lokalnie.
-9. Merge/push do `main` blokuje bramka do werdyktu recenzenta (`verdict: ok sha: <sha>`), wdrożenie — do „wdrażaj” właściciela.
+8. Posprzątaj: worktree agentów usuń (`git worktree remove`) tylko scalone i bez niezacommitowanych zmian,
+   po sprawdzeniu (`git -C <worktree> status`, `git branch --merged`); scalone gałęzie skasuj lokalnie.
+9. Merge/push do `main`/`master` (tylko tych gałęzi) blokuje bramka do werdyktu recenzenta
+   (`verdict: ok sha: <sha>` dla commita, który tam trafia), wdrożenie — do promptu właściciela
+   zaczynającego się od „wdrażaj” („deploy now”). Bez przeglądu: prompt zaczynający się od
+   „bez przeglądu” („skip review”); obie zgody działają na jedno polecenie.
 
 Wejście na produkcję — **tylko na wyraźne polecenie właściciela**, z listą skutków.
