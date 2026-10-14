@@ -97,8 +97,8 @@ z `"mvp": true`, które nie są zrobione: najpierw w toku, potem do zrobienia, w
 priorytetu (1 = pilne). Termin żółknie na tydzień przed, czerwienieje na 3 dni przed.
 
 Stany: `do-zrobienia`, `w-toku`, `do-sprawdzenia`, `zrobione`. Orkiestrator prowadzi plik skryptem
-`skills/sztab/zadanie.mjs`. Dodaj `.claude/zadania.json`, `.claude/sztab-koszty.json` i `.claude/sztab-przeglady.json` do
-`.gitignore` projektu.
+`skills/sztab/zadanie.mjs`. Dodaj `.claude/zadania.json` i `.claude/sztab-koszty.json` do `.gitignore`
+projektu.
 
 ### Repo w panelu
 
@@ -108,13 +108,17 @@ każdej turze: `main · ↑2 ↓0` (albo `brak upstreamu`), `3 pliki · +40 −1
 
 Ocena commita pochodzi od `sztab:recenzent`: ostatnia linia jego odpowiedzi
 `verdict: ok|changes|reject sha: <sha>` oznacza commit jako ✓ przejrzany, ⚠ uwagi albo ✗ odrzucony;
-bez niej ○ nieprzejrzany. Werdykty zostają w `.claude/sztab-przeglady.json` (dodaj do `.gitignore`);
-przy starcie sesji wtyczka bierze z pliku tylko werdykty commitów, które repo zna.
+bez niej ○ nieprzejrzany. Werdykty zostają w magazynie wtyczki (`$.store`, poza drzewem roboczym),
+pod kluczem repozytorium (jego głównego katalogu, wspólnego dla worktree), więc przeżywają sesję.
 
 Jeśli projekt ma własnego recenzenta, jego odpowiedź też musi kończyć się linią
 `verdict: ok|changes|reject sha: <sha>` — inaczej do przeglądu przed merge'em użyj `sztab:recenzent`.
 
 ### Bramka
+
+Bramka to zabezpieczenie przed pomyłką, nie granica bezpieczeństwa: agent z dostępem do Basha zawsze
+może ją obejść. Łapie realne ścieżki (zwykłe polecenia, `bash -c`, heredoc, potok do powłoki), nie
+złośliwe obejścia.
 
 Polecenia Bash i PowerShell, także subagentów:
 
@@ -132,9 +136,13 @@ Polecenia Bash i PowerShell, także subagentów:
   „deploy now”). „Nie wdrażaj jeszcze” zgodą nie jest. `cat docs/deploy.md` czy commit ze słowem
   „deploy” to nie wdrożenie.
 
-Bramka rozbiera też `bash -c "…"`, `pwsh -Command "…"` i `eval "…"`; tekst w cudzysłowach i heredocach
-nie liczy się jako polecenie. Zgoda z promptu działa na jedno polecenie. Push na inne gałęzie
-i zakładanie PR-ów nie są blokowane.
+Bramka rozbiera też `bash -c "…"`, `pwsh -Command "…"`, `eval "…"` oraz tekst podany powłoce, `ssh`
+czy interpreterowi przez heredoc (`bash <<EOF`) albo potok (`echo … | sh`); poza tym tekst
+w cudzysłowach i heredocach nie liczy się jako polecenie. Subagent: HEAD i bieżąca gałąź są
+rozwiązywane w jego katalogu (z `cwd` wywołania Agent albo z jego `cd /ścieżka`); gdy go nie znamy,
+push/merge do `main` przez HEAD czy bieżącą gałąź jest blokowany — wtedy jawny sha/gałąź
+(`git push origin <sha>:main`) albo polecenie z głównej sesji. Zgoda z promptu działa na jedno
+polecenie. Push na inne gałęzie i zakładanie PR-ów nie są blokowane.
 
 ## Rozwój
 
