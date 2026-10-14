@@ -203,9 +203,11 @@ const pending = new Map<string, string>()
 
 function writeActivity($: EngineInterface, id: string, text: string): void {
   lastWrite.set(id, Date.now())
+  // Agent wznowiony wiadomością (SendMessage) nie przechodzi przez agent.spawn: jego pierwsza
+  // czynność przywraca wiersz do „pracuje”.
   void update($, agents, rows =>
-    rows.some(r => r.id === id && r.activity !== text)
-      ? rows.map(r => (r.id === id ? { ...r, activity: text } : r))
+    rows.some(r => r.id === id && (r.activity !== text || !RUNNING.has(r.status)))
+      ? rows.map(r => (r.id === id ? { ...r, activity: text, status: 'running', endedAt: undefined } : r))
       : rows,
   )
 }

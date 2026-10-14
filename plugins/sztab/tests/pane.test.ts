@@ -301,3 +301,28 @@ test('zasady rozmowy: wyłączone przez .claude/sztab.json, plik czytany raz', a
   }
   expect(reads).toBe(1)
 })
+
+test('agent wznowiony wiadomością wraca do „pracuje” przy pierwszej czynności', async ($, on) => {
+  setup(on, null)
+  on('ui.open', () => ({ value: {} }) as never)
+  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'r1' }) as never)
+  on('tool.call', () => ({ result: {}, text: '' }) as never)
+  on('turn.complete', ($: unknown, e: { answer: string }) => ({ text: e.answer }))
+  await $.session.start({ cwd: '/x', surface: 'terminal', isInteractive: true })
+  await $.agent.spawn({ prompt: 'x', description: 'PAW-4 Poprawki bramki', subagentType: 'rzemieslnik' } as never)
+  await $.turn.complete({ answer: 'OK', durationMs: 1, isAborted: false, turnId: 't1', agentId: 'r1', reason: 'answer' } as never)
+  await settle()
+  await $.tool.call({ tool: 'Edit', file_path: '/x/repo.tsx', agentId: 'r1' } as never)
+  await settle()
+  const ui = await $.ui.mount({
+    plugin: 'sztab',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'sztab',
+    props: { title: 'Sztab', isFocused: false, bodyColumns: 60 } as never,
+  })
+  const drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).toContain('pracuje 1')
+  expect(drawn).toContain('edytuje repo.tsx')
+  await ui.unmount()
+})
