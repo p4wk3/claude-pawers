@@ -52,4 +52,4 @@ Prosty język, krótkie zdania, bez żargonu. Kolejność:
 2. **Zostało** — 1–3 linie.
 3. **Propozycje** — najwyżej 2, różne od siebie (np. przypomnienie na jutro i nowe zadanie albo
    sprzątanie), i pytanie: „Zrobić którąś?”.
-4. `tl;dr` — jedno zdanie.
+4. `tl;dr` jako cytat: `> **tl;dr**` i jedno zdanie w linii `> …`.

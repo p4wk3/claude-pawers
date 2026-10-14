@@ -53,4 +53,4 @@ Prosty język, krótkie zdania, bez żargonu. Kolejność:
 2. **Zadania** — 3–4 linie.
 3. **Repo** — 1 linia albo propozycja sprzątania.
 4. **Proponuję zacząć od:** jedno zadanie z jednym zdaniem dlaczego, i pytanie: „Zaczynamy?”.
-5. `tl;dr` — jedno zdanie.
+5. `tl;dr` jako cytat: `> **tl;dr**` i jedno zdanie w linii `> …`.
