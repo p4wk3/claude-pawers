@@ -1,0 +1,6 @@
+{
+  "name": "sztab",
+  "owner": { "name": "p4wk3" },
+  "description": "Sztab: orkiestrator z zespołem subagentów i panel na żywo dla Claude Code",
+  "plugins": [{ "name": "sztab", "source": "./" }]
+}

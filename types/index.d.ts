@@ -1,0 +1,53 @@
+export type AgentRow = {
+  id: string
+  description: string
+  type: string
+  model: string
+  startedAt: number
+  endedAt?: number
+  status: string
+  // Wejście + cache + wyjście ze wszystkich tur agenta.
+  tokens: number
+  // Ostatnia czynność z tool.call, po polsku ("czyta register.tsx").
+  activity?: string
+  // Początek odpowiedzi z turn.complete, do rozwinięcia pod wierszem.
+  answer?: string
+}
+
+export type CtxCategory = { name: string; tokens: number }
+
+export type CtxSnap = {
+  percent?: number
+  tokens?: number
+  window: number
+  costUsd?: number
+  categories: CtxCategory[]
+  breakdownTotal?: number
+  breakdownMax?: number
+  compactAt?: number
+  error?: string
+}
+
+export type ZadanieW = { id: string; tytul: string }
+
+// Wyciąg z pliku zadań bieżącego katalogu (format w README).
+export type ZadaniaSnap = {
+  wToku: ZadanieW[]
+  tytuly: Record<string, string>
+  doZrobienia: number
+  doSprawdzenia: number
+  zrobione: number
+}
+
+declare module 'claude-code' {
+  interface PluginState {
+    sztab: {
+      agents: AgentRow[]
+      ctx: CtxSnap | null
+      now: number
+      zadania: ZadaniaSnap | null
+      // Id gotowych agentów z rozwiniętym podglądem wyniku.
+      open: string[]
+    }
+  }
+}

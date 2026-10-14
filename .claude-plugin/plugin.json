@@ -1,0 +1,9 @@
+{
+  "name": "sztab",
+  "version": "0.2.0",
+  "description": "Orkiestrator z zespołem subagentów (zwiadowca, badacz, rzemieślnik, recenzent) i panel Sztab: agenci na żywo, zadania i okno kontekstu",
+  "author": { "name": "p4wk3", "url": "https://github.com/p4wk3" },
+  "repository": "https://github.com/p4wk3/sztab",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}
