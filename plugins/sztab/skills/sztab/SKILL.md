@@ -1,6 +1,6 @@
 ---
 name: sztab
-description: Sposób pracy orkiestratora — główna sesja rozdziela robotę między subagentów (zwiadowca, badacz, rzemieślnik, recenzent) pod jednym zadaniem z trackera, a sama rozmawia z właścicielem, sprawdza wyniki, testuje i domyka zmianę. Użyj na początku każdej pracy, która wymaga czytania więcej niż kilku plików, zmian w kodzie, researchu albo przeglądu — czyli prawie zawsze, poza pytaniem, na które odpowiadasz od ręki.
+description: Sposób pracy orkiestratora — główna sesja rozdziela robotę między subagentów (zwiadowca, badacz, rzemieślnik, tester, recenzent) pod jednym zadaniem z trackera, a sama rozmawia z właścicielem, sprawdza wyniki, testuje i domyka zmianę. Użyj na początku każdej pracy, która wymaga czytania więcej niż kilku plików, zmian w kodzie, researchu albo przeglądu — czyli prawie zawsze, poza pytaniem, na które odpowiadasz od ręki.
 ---
 
 # Sztab — praca z agentami
@@ -47,6 +47,7 @@ Agenci z tej wtyczki mają przedrostek `sztab:` (`subagent_type: "sztab:zwiadowc
 | `sztab:zwiadowca` | haiku | gdzie coś jest: plik, funkcja, kto wywołuje | wniosków, ocen |
 | `sztab:badacz` | sonnet | odpowiedź z wielu źródeł: kod, dokumentacja, sieć | edycji |
 | `sztab:rzemieslnik` | sonnet | zmiana według gotowej listy albo planu | decyzji projektowych |
+| `sztab:tester` | sonnet | sprawdzenie na żywo w przeglądarce: kryteria „gotowe, gdy…”, role, widoki mobilne, błędy w konsoli, zapis danych | edycji kodu |
 | `sztab:recenzent` | sonnet | przegląd diffu albo planu przed PR-em i merge'em | pisania poprawek |
 
 - Kod wymagający projektowania (nowy moduł, schemat bazy, uprawnienia, wspólne pakiety) — rzemieślnik
@@ -65,26 +66,57 @@ Domyślnie **po kolei, nie wszystko naraz**:
    z przykładem tego, co zobaczy użytkownik. Reszta idzie dalej.
 4. **Rzemieślnik** wykonuje listę. Niezależne części (różne pliki, różne moduły) — kilku równolegle,
    każdy w swoim worktree; ten sam plik — nigdy dwóch naraz.
-5. **Recenzent** dostaje diff gałęzi i sprawdza go z `CLAUDE.md` i dokumentacją domeny. Recenzuje wynik,
+5. **Tester** — przy zmianach w UI i wszystkim, co widzi użytkownik — sprawdza wynik na żywo
+   w przeglądarce na lokalnej aplikacji: kryteria `done-when`, role, widoki 375/768 px i desktop, błędy
+   w konsoli i sieci, czy dane naprawdę się zapisały. Przed recenzentem albo równolegle z nim. Zawsze
+   tylko jeden tester naraz (jedna przeglądarka). Potrzebuje rozszerzenia Claude in Chrome albo
+   wbudowanej przeglądarki aplikacji desktopowej.
+6. **Recenzent** dostaje diff gałęzi i sprawdza go z `CLAUDE.md` i dokumentacją domeny. Recenzuje wynik,
    nie wejście.
-6. **Ty** domykasz (sekcja 5).
+7. **Ty** domykasz (sekcja 5).
 
 Skróty są w porządku: znany plik — bez zwiadowcy; czysty research — bez rzemieślnika i recenzenta;
 drobna poprawka tekstu — rzemieślnik i od razu Twój przegląd.
 
 ## 4. Zlecenie
 
-Agent nie zna rozmowy. Zlecenie ma wystarczyć samo:
+Agent nie zna rozmowy. Zlecenie ma wystarczyć samo. Zlecenia piszesz **po angielsku** (polski kosztuje
+ok. 1,6–1,9 raza więcej tokenów), zwięźle, jedno pole w linii. Cytaty — teksty z UI, komunikaty błędów,
+nazwy z domeny, treści użytkownika — zostają dosłownie, w oryginale, w backtickach.
 
-- **Repo i pliki** — pełne ścieżki, od czego zacząć.
-- **Cel** — jedno zdanie po co, z id zadania.
-- **Co dokładnie** — lista punktów; przy poprawkach każdy z miejscem (`plik:linia`) i treścią.
-- **Zasady projektu, które go dotyczą** — wypisz z `CLAUDE.md` te, które mogą go ugryźć. Nie zakładaj,
-  że agent je sam znajdzie.
-- **Granice** — czego nie ruszać, „nie commituj” albo „commituj na gałęzi X, nie pushuj”, „nie twórz
-  pliku Y (robi go inny agent)”.
-- **Sprawdzenie** — czym zweryfikować: typecheck, lint, testy, build — komendy z `CLAUDE.md`.
-- **Raport** — agenci mają własny format; nie każ im pisać więcej.
+```
+task: MNG-140 visit list filtered by location
+repo: /path/to/worktree (branch mng-140); start at src/lib/visits.ts:42
+scope:
+- src/lib/visits.ts:42 - filter `listVisits` by `currentLocationId`
+- src/app/visits/page.tsx - pass the id; empty state text `Brak wizyt`
+done-when: list shows only visits of the current location; typecheck passes
+no: no push; do not touch src/lib/labels.ts (another agent edits it)
+rules: RLS is organization-scoped; `"use server"` files export only async functions
+checks: `npx tsc --noEmit`, `pnpm --filter @mnghub/fryzapp test visits`
+report: sztab-speak
+```
+
+- **`task`** — id zadania i jedno zdanie po co.
+- **`scope`** — lista punktów; przy poprawkach każdy z miejscem (`plik:linia`) i treścią. Pełne ścieżki
+  (repo, worktree, gałąź), od czego zacząć.
+- **`done-when`** — sprawdzalne kryteria; tester weryfikuje je jeden po drugim.
+- **`no`** — granice: czego nie ruszać, „no commit” albo „commit on branch X, no push”, „do not create
+  file Y (another agent does)”.
+- **Zasady projektu, które mogą ugryźć** (`rules:`) — wypisz z `CLAUDE.md` te, które go dotyczą. Nie
+  zakładaj, że agent je sam znajdzie.
+- **Sprawdzenie** (`checks:`) — komendy z `CLAUDE.md`: typecheck, lint, testy, build. Testerowi: adres
+  aplikacji, konta testowe z rolami, katalog na zrzuty (scratchpad), czy nagrać GIF.
+- **`report`** — agenci mają własny kontrakt raportu; nie każ im pisać więcej.
+
+Raporty wracają w **sztab-speak**: po angielsku, pierwsza linia to status (`OK`, `FAIL`, `PARTIAL`,
+`BLOCKED`, `UNKNOWN` albo odmowa: `too-big`, `needs-confirm`, `ambiguous`, `regressed`, `out-of-scope`),
+dalej pola `klucz: wartość` w stałej kolejności, miejsca jako `plik:linia`. Czytasz je tylko Ty —
+właścicielowi przekładasz wynik na prosty polski, nigdy nie wklejasz surowego raportu.
+
+Ostatnia linia raportu recenzenta to zawsze `verdict: ok|changes|reject sha: <sha>`. Czyta ją panel
+i bramka merge'a: merge tylko przy `verdict: ok` dla tego samego sha, które idzie do merge'a. Po
+poprawkach (nowy commit) — nowy przegląd.
 
 ## 5. Domknięcie
 
