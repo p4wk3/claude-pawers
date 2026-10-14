@@ -100,5 +100,6 @@ Agent nie zna rozmowy. Zlecenie ma wystarczyć samo:
 6. Właściciel dostaje 2–4 zdania: co zrobione, co wymaga jego decyzji. Bez surowych raportów agentów.
 7. Rzeczy spoza zadania, które agenci zgłosili — nowe zadania w trackerze, nie robione od razu.
 8. Posprzątaj: worktree agentów po merge'u usuń (`git worktree remove`), scalone gałęzie skasuj lokalnie.
+9. Merge/push do `main` blokuje bramka do werdyktu recenzenta (`verdict: ok sha: <sha>`), wdrożenie — do „wdrażaj” właściciela.
 
 Wejście na produkcję — **tylko na wyraźne polecenie właściciela**, z listą skutków.

@@ -57,6 +57,26 @@ export type ZadaniaSnap = {
   cel: CelSnap | null
 }
 
+// Werdykt recenzenta z ostatniej linii `verdict: ok sha: <sha>`.
+export type Werdykt = 'ok' | 'changes' | 'reject'
+
+// pushed = jest już na upstreamie (pierwsze `ahead` commitów nie są).
+export type RepoCommit = { sha: string; subject: string; when: string; pushed: boolean }
+
+// Stan repo do sekcji „Repo”; null poza repozytorium gita.
+export type RepoSnap = {
+  branch: string
+  // Brak = gałąź bez upstreamu.
+  ahead?: number
+  behind?: number
+  files: number
+  added: number
+  removed: number
+  commits: RepoCommit[]
+  // Otwarty PR bieżącej gałęzi; ci brak = PR bez checków.
+  pr?: { number: number; url: string; ci?: 'ok' | 'fail' | 'pending' }
+}
+
 declare module 'claude-code' {
   interface PluginState {
     sztab: {
@@ -68,6 +88,11 @@ declare module 'claude-code' {
       open: string[]
       // Dzień (liczba dni od epoki, czas lokalny) do odliczania terminu celu.
       dzis: number
+      repo: RepoSnap | null
+      // Werdykty recenzenta po sha (też w .claude/sztab-przeglady.json).
+      przeglady: Record<string, Werdykt>
+      // Zgoda z ostatniego promptu właściciela, na jedno polecenie.
+      zgoda: { bezPrzegladu: boolean; wdrazaj: boolean }
     }
   }
 }
