@@ -73,6 +73,8 @@ function setup(on: any, run: (argv: readonly string[], init?: Init) => Run = git
     calls.push(e.argv.join(' '))
     return { value: { ...run(e.argv, e.init), stderr: '' } } as never
   })
+  const env: Record<string, string> = { HOME: '/home/u', USERPROFILE: 'C:\\Users\\u' }
+  on('env.get', ($: unknown, e: { name: string }) => ({ value: env[e.name] }) as never)
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'r1' }) as never)
   on('turn.complete', ($: unknown, e: { answer: string }) => ({ text: e.answer }))
   on('tool.call', () => ({ result: { stdout: 'ok' }, text: 'ok' }) as never)
@@ -317,6 +319,43 @@ test('gałąź nieznana = może być main; cd i git -C sprawdzają swój katalog
   await started($, on)
   expect(await gated($, 'cd ../other && git push')).toBe(false)
   expect(await gated($, 'git -C ../other push')).toBe(false)
+  expect(await gated($, 'cd ../elsewhere && git push')).toBe(true)
+})
+
+test('cd i git -C z katalogiem domowym: ~, $HOME, ${HOME}, $env:USERPROFILE, %USERPROFILE%', async ($, on) => {
+  // Katalog domowy repo (pod HOME albo USERPROFILE) jest na gałęzi feature, z własnym HEAD.
+  const inHome = (cwd?: string) => cwd !== undefined && /^(\/home\/u|C:\\Users\\u)[\\/]repo$/.test(cwd)
+  const run = (argv: readonly string[], init?: Init): Run => {
+    const cmd = argv.join(' ')
+    if (inHome(init?.cwd) && cmd === 'git branch --show-current') return { exitCode: 0, stdout: 'chore/x\n' }
+    if (inHome(init?.cwd) && cmd === 'git rev-parse --verify --quiet HEAD^{commit}') return { exitCode: 0, stdout: `${FEAT}\n` }
+    return git(argv, init)
+  }
+  await started($, on, run)
+  // Polecenie, które bramka odrzucała: cd ~/repo, heredoc do pythona, commit i push na gałęzi feature.
+  const failing = "cd ~/repo && python - <<'EOF'\nimport pathlib\nprint(pathlib.Path('x').read_text())\nEOF\ngit commit -am \"fix: x\" && git push"
+  expect(await gated($, failing)).toBe(false)
+  expect(await gated($, 'cd $HOME/repo && git push')).toBe(false)
+  expect(await gated($, 'cd "${HOME}/repo" && git push')).toBe(false)
+  expect(await gated($, 'cd %USERPROFILE%/repo && git push')).toBe(false)
+  expect(await gated($, 'git -C ~/repo push')).toBe(false)
+  expect(await gated($, 'Set-Location $env:USERPROFILE\\repo; git push', 'PowerShell')).toBe(false)
+  // Push na main z katalogu domowego: HEAD rozwiązany w rozwiniętym katalogu, bez werdyktu odmowa.
+  const main = await $.tool.call({ tool: 'Bash', command: 'cd ~/repo && git push origin HEAD:main' } as never)
+  expect(String(main.deny ?? main.text)).toContain(`verdict: ok sha: ${FEAT}`)
+})
+
+test('katalog z cd nie do ustalenia: gałąź z katalogu sesji, jawny main dalej odmowa', async ($, on) => {
+  // Katalog sesji na gałęzi feature, nieznany katalog nie odpowiada.
+  await started($, on, (argv, init) => {
+    if (argv.join(' ') === 'git branch --show-current') return init?.cwd === undefined ? { exitCode: 0, stdout: 'feature\n' } : { exitCode: 128, stdout: '' }
+    return init?.cwd === undefined ? git(argv, init) : { exitCode: 128, stdout: '' }
+  })
+  expect(await gated($, 'cd $REPO && git push')).toBe(false)
+  expect(await gated($, 'cd $REPO && git push origin feature/x')).toBe(false)
+  const main = await $.tool.call({ tool: 'Bash', command: 'cd $REPO && git push origin HEAD:main' } as never)
+  expect(String(main.deny ?? main.text)).toContain('could not be resolved')
+  // Zwykły, ale nieistniejący katalog dalej = gałąź nieznana.
   expect(await gated($, 'cd ../elsewhere && git push')).toBe(true)
 })
 
