@@ -91,6 +91,18 @@ export const KSZTALTY: Record<string, Shape> = {
       el('Daszek', [12, 7.5, 8], [15.4, 8, 11.4], '#zelazo'),
     ],
   },
+  // Turkusowa kurtka, czapka z daszkiem i podkładka z listą: klika i odhacza.
+  tester: {
+    textures: { ...BASE, kurtka: '#2f8f8a', czapka: '#e07a2e', deska: '#8a5a32', kartka: '#f4f1e8', ptaszek: '#3fa34d' },
+    elements: [
+      ...body('#kurtka'),
+      el('Czapka', [5, 16.5, 5], [11, 18, 11], '#czapka'),
+      el('Daszek', [5.5, 16.5, 11], [10.5, 17, 13], '#czapka'),
+      el('Deska', [11.5, 5, 9], [15, 10.5, 9.6], '#deska'),
+      el('Kartka', [12, 5.5, 9.6], [14.5, 10, 9.8], '#kartka'),
+      el('Ptaszek', [12.5, 7.5, 9.8], [13.5, 8.5, 10], '#ptaszek'),
+    ],
+  },
   // Zwykły kolonista: każdy inny agent.
   kolonista: {
     textures: { ...BASE, tunika: '#8a8f98', wlosy: '#3a2b20' },
@@ -108,6 +120,7 @@ export const POSTACIE: Record<string, { shape: string; label: string }> = {
   rzemieslnik: { shape: 'rzemieslnik', label: 'Rzemieślnik' },
   recenzent: { shape: 'recenzent', label: 'Recenzent' },
   zwiadowca: { shape: 'zwiadowca', label: 'Zwiadowca' },
+  tester: { shape: 'tester', label: 'Tester' },
   Explore: { shape: 'zwiadowca', label: 'Zwiadowca (Explore)' },
   'caveman:cavecrew-investigator': { shape: 'zwiadowca', label: 'Zwiadowca (cavecrew)' },
   'caveman:cavecrew-builder': { shape: 'rzemieslnik', label: 'Rzemieślnik (cavecrew)' },

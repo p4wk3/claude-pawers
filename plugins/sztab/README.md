@@ -1,13 +1,15 @@
 # Sztab
 
 Wtyczka do [Claude Code](https://claude.com/claude-code), która zamienia główną sesję w **orkiestratora**.
-Orkiestrator rozmawia z tobą i rozdziela robotę między czterech subagentów. Ich pracę widać na żywo
+Orkiestrator rozmawia z tobą i rozdziela robotę między pięciu subagentów. Ich pracę widać na żywo
 w panelu.
 
 - **Skill `sztab`** — sposób pracy: zadanie z trackera, kolejność zwiadowca → badacz → rzemieślnik →
-  recenzent, jak pisać zlecenia, jak domykać zmianę.
+  tester → recenzent, jak pisać zlecenia, jak domykać zmianę.
 - **Agenci** — `sztab:zwiadowca` (haiku, namierzanie), `sztab:badacz` (research), `sztab:rzemieslnik`
-  (wykonanie zmiany), `sztab:recenzent` (przegląd). Wszyscy raportują zwięźle, w stałym formacie.
+  (wykonanie zmiany), `sztab:tester` (sprawdzenie na żywo w przeglądarce), `sztab:recenzent` (przegląd).
+  Zlecenia i raporty idą po angielsku, w zwięzłym stałym formacie („sztab-speak”) — czyta je tylko
+  orkiestrator, tobie przekazuje wynik po polsku.
 - **Pasek MVP** nad promptem — cel, postęp, ile dni zostało i najpilniejsze zadania do MVP.
 - **`/pawers-setup`** — konfiguracja w repo: źródło zadań, cel MVP, wpis w `CLAUDE.md`.
 - **Koszt na zadanie** — przy każdym zadaniu w panelu: liczba agentów, tokeny i szacunkowy koszt
@@ -20,6 +22,9 @@ w panelu.
 ## Wymagania
 
 - **Agenci i skill** działają w każdym repo bez niczego więcej.
+- **Tester** potrzebuje przeglądarki, którą steruje Claude: rozszerzenia
+  Claude in Chrome albo wbudowanej przeglądarki aplikacji desktopowej Claude.
+  Bez niej zgłasza `BLOCKED`.
 - **Node.js 18+** w `PATH` — skrypt `zadanie.mjs`, który prowadzi plik zadań, to program Node'a.
 - **Zadania w panelu i pasek MVP** potrzebują źródła zadań — inaczej ich po prostu nie ma:
   - **Linear** podłączony do Claude Code (connector albo serwer MCP Lineara), z którego orkiestrator
