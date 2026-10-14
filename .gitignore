@@ -2,3 +2,4 @@ plugins/*/.claude-plugin/types/
 node_modules/
 .claude/zadania.json
 .claude/sztab-koszty.json
+.claude/sztab-przeglady.json

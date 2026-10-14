@@ -5,11 +5,19 @@ const settle = () => new Promise(r => (globalThis as unknown as { setTimeout: (f
 
 const HEAD = 'abc1234def5678901234567890abcdef12345678'
 const PR_HEAD = 'feed0001feed0001feed0001feed0001feed0001'
+const FEAT = 'beef0002beef0002beef0002beef0002beef0002'
+// Commity, które repo zna (git cat-file).
+const KNOWN = [HEAD, PR_HEAD, FEAT]
+const REFS: Record<string, string> = { HEAD, main: HEAD, 'feature/x': FEAT }
+
+type Run = { exitCode: number; stdout: string }
+type Init = { cwd?: string; stdin?: string }
 
 // Repo na gałęzi main: 1 commit przed upstreamem, otwarty PR z zielonym CI.
-function git(argv: readonly string[]): { exitCode: number; stdout: string } {
+// PR 13 idzie do development, PR 99 nie istnieje; katalog ../other jest na gałęzi feature.
+function git(argv: readonly string[], init?: Init): Run {
   const cmd = argv.join(' ')
-  if (cmd === 'git branch --show-current') return { exitCode: 0, stdout: 'main\n' }
+  if (cmd === 'git branch --show-current') return { exitCode: 0, stdout: init?.cwd === '../other' ? 'feature\n' : 'main\n' }
   if (cmd.startsWith('git rev-list')) return { exitCode: 0, stdout: '0\t1\n' }
   if (cmd === 'git status --porcelain') return { exitCode: 0, stdout: ' M a.ts\n M b.ts\n?? c.ts\n' }
   if (cmd === 'git diff --shortstat HEAD') return { exitCode: 0, stdout: ' 2 files changed, 40 insertions(+), 12 deletions(-)\n' }
@@ -19,19 +27,34 @@ function git(argv: readonly string[]): { exitCode: number; stdout: string } {
       stdout: `${HEAD}\tfeat: nowa sekcja\t5 minutes ago\n0000000aaaa\tfix: stare\t2 days ago\n1111111bbbb\tchore: start\t3 days ago\n`,
     }
   }
-  if (cmd === 'git rev-parse HEAD') return { exitCode: 0, stdout: `${HEAD}\n` }
+  if (cmd.startsWith('git rev-parse --verify --quiet ')) {
+    const sha = REFS[(argv[4] ?? '').replace(/\^\{commit\}$/, '')]
+    return sha ? { exitCode: 0, stdout: `${sha}\n` } : { exitCode: 1, stdout: '' }
+  }
+  if (cmd === 'git cat-file --batch-check') {
+    const out = (init?.stdin ?? '').split('\n').filter(Boolean).map(line => {
+      const name = line.replace(/\^\{commit\}$/, '')
+      const sha = KNOWN.find(k => k.startsWith(name))
+      return sha ? `${sha} commit 200` : `${line} missing`
+    })
+    return { exitCode: 0, stdout: `${out.join('\n')}\n` }
+  }
   if (cmd === 'gh pr view --json number,url,state,statusCheckRollup') {
     return {
       exitCode: 0,
       stdout: JSON.stringify({ number: 12, url: 'https://x/12', state: 'OPEN', statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }] }),
     }
   }
-  if (cmd.startsWith('gh pr view') && cmd.includes('headRefOid')) return { exitCode: 0, stdout: JSON.stringify({ headRefOid: PR_HEAD }) }
+  if (cmd.startsWith('gh pr view') && cmd.endsWith('--json headRefOid,baseRefName')) {
+    if (argv.includes('99')) return { exitCode: 1, stdout: '' }
+    const base = argv.includes('13') ? 'development' : 'main'
+    return { exitCode: 0, stdout: JSON.stringify({ headRefOid: PR_HEAD, baseRefName: base }) }
+  }
   return { exitCode: 1, stdout: '' }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function setup(on: any, run: (argv: readonly string[]) => { exitCode: number; stdout: string } = git) {
+function setup(on: any, run: (argv: readonly string[], init?: Init) => Run = git, files: Record<string, string> = {}) {
   on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: 1000, window: 1000000, percent: 1 }, rateLimits: [] } }) as never)
   on('agent.list', () => ({ value: [] }) as never)
   on('command.register', () => ({ value: {} }) as never)
@@ -40,6 +63,8 @@ function setup(on: any, run: (argv: readonly string[]) => { exitCode: number; st
   on('clock.now', () => ({ value: 1000 }) as never)
   on('clock.every', () => ({ value: undefined }) as never)
   on('fs.read', ($: unknown, e: { path: string }) => {
+    const hit = Object.entries(files).find(([name]) => e.path.replace(/\\/g, '/').endsWith(name))
+    if (hit) return { value: hit[1] } as never
     throw new Error(`ENOENT ${e.path}`)
   })
   const written: Record<string, string> = {}
@@ -47,12 +72,17 @@ function setup(on: any, run: (argv: readonly string[]) => { exitCode: number; st
     written[e.path.replace(/\\/g, '/')] = e.text
     return { value: undefined } as never
   })
-  on('process.run', ($: unknown, e: { argv: readonly string[] }) => ({ value: { ...run(e.argv), stderr: '' } }) as never)
+  const calls: string[] = []
+  on('process.run', ($: unknown, e: { argv: readonly string[]; init?: Init }) => {
+    calls.push(e.argv.join(' '))
+    return { value: { ...run(e.argv, e.init), stderr: '' } } as never
+  })
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'r1' }) as never)
   on('turn.complete', ($: unknown, e: { answer: string }) => ({ text: e.answer }))
   on('tool.call', () => ({ result: { stdout: 'ok' }, text: 'ok' }) as never)
   on('prompt.submit', ($: unknown, e: { text: string }) => ({ text: e.text }))
-  return written
+  // `calls` niewyliczalne: Object.entries(written) to tylko zapisane pliki.
+  return Object.defineProperty(written, 'calls', { value: calls }) as Record<string, string> & { calls: string[] }
 }
 
 // Odmowa bramki: { deny } albo wynik z błędem, zależnie od drogi wywołania.
@@ -106,7 +136,7 @@ test('sekcja Repo: gałąź, zmiany, commity, PR; werdykt recenzenta oznacza com
     expect(drawn).toContain('5 minutes ago · przejrzany')
     expect(drawn).toContain('2 days ago · nieprzejrzany')
   }
-  expect(JSON.parse(Object.entries(written).find(([path]) => path.endsWith('.claude/sztab-przeglady.json'))?.[1] ?? '{}')).toEqual({ abc1234: 'ok' })
+  expect(JSON.parse(String(Object.entries(written).find(([path]) => path.endsWith('.claude/sztab-przeglady.json'))?.[1] ?? '{}'))).toEqual({ abc1234: 'ok' })
 })
 
 test('poza repozytorium gita sekcji Repo nie ma', async ($, on) => {
@@ -139,7 +169,7 @@ test('bramka: „bez przeglądu” od właściciela przepuszcza jedno polecenie'
   setup(on)
   await $.session.start({ cwd: '/x', surface: 'desktop', isInteractive: true })
   await settle()
-  await $.prompt.submit({ text: 'scal bez przeglądu', origin: { kind: 'composer' } } as never)
+  await $.prompt.submit({ text: 'bez przeglądu, scal', origin: { kind: 'composer' } } as never)
   const first = await $.tool.call({ tool: 'Bash', command: 'git push origin HEAD:main' } as never)
   expect(blocked(first)).toBe(false)
   const second = await $.tool.call({ tool: 'Bash', command: 'git push origin HEAD:main' } as never)
@@ -167,4 +197,139 @@ test('bramka: wdrożenie tylko po „wdrażaj”, raz', async ($, on) => {
   expect(blocked(allowed)).toBe(false)
   const again = await $.tool.call({ tool: 'Bash', command: 'vercel --prod' } as never)
   expect(blocked(again)).toBe(true)
+})
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function gated($: any, command: string, tool: 'Bash' | 'PowerShell' = 'Bash'): Promise<boolean> {
+  return blocked(await $.tool.call({ tool, command } as never))
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function started($: any, on: any, run?: (argv: readonly string[], init?: Init) => Run, files?: Record<string, string>) {
+  const out = setup(on, run, files)
+  await $.session.start({ cwd: '/x', surface: 'desktop', isInteractive: true })
+  await settle()
+  return out
+}
+
+test('zgoda: tylko prompt zaczynający się od frazy, także po angielsku', async ($, on) => {
+  await started($, on)
+  await $.prompt.submit({ text: 'nie wdrażaj jeszcze', origin: { kind: 'composer' } } as never)
+  expect(await gated($, 'scripts/wdroz-mnghub sha-1')).toBe(true)
+  await $.prompt.submit({ text: 'nigdy bez przeglądu', origin: { kind: 'composer' } } as never)
+  expect(await gated($, 'git push origin HEAD:main')).toBe(true)
+  await $.prompt.submit({ text: "don't deploy now", origin: { kind: 'composer' } } as never)
+  expect(await gated($, 'scripts/wdroz-mnghub sha-1')).toBe(true)
+
+  await $.prompt.submit({ text: 'wdrażaj', origin: { kind: 'composer' } } as never)
+  expect(await gated($, 'scripts/wdroz-mnghub sha-1')).toBe(false)
+  await $.prompt.submit({ text: 'Deploy now, please', origin: { kind: 'composer' } } as never)
+  expect(await gated($, 'vercel --prod')).toBe(false)
+  await $.prompt.submit({ text: '  skip review and push', origin: { kind: 'composer' } } as never)
+  expect(await gated($, 'git push origin HEAD:main')).toBe(false)
+})
+
+test('podział polecenia: kontynuacje, cudzysłowy, heredoc, nawiasy, &', async ($, on) => {
+  await started($, on)
+  // Tekst w cudzysłowach i ciałach heredoców nie tworzy kawałków.
+  const commit = "git commit -m \"$(cat <<'EOF'\nfix: x\n\ngit push origin main; ./deploy.sh\nEOF\n)\""
+  expect(await gated($, commit)).toBe(false)
+  expect(await gated($, 'cat <<EOF > notes.txt\ngit push origin main\nEOF\ngit status')).toBe(false)
+  expect(await gated($, 'echo "a; git push origin main"')).toBe(false)
+  expect(await gated($, "git commit -m @'\nmerge \"x\"; git push origin main\n'@", 'PowerShell')).toBe(false)
+  // Prawdziwe polecenia po separatorach są bramkowane.
+  expect(await gated($, 'echo a \\\n  && git push origin main')).toBe(true)
+  expect(await gated($, 'echo a `\n  ; git push origin main', 'PowerShell')).toBe(true)
+  expect(await gated($, '(git push origin main)')).toBe(true)
+  expect(await gated($, 'x & git push origin main')).toBe(true)
+  expect(await gated($, 'git status\ngit push origin main')).toBe(true)
+})
+
+test('wdrożenie: tylko pierwsze słowo kawałka, ssh z poleceniem zdalnym', async ($, on) => {
+  await started($, on)
+  for (const command of [
+    'cat docs/deploy.md',
+    'grep -rn deploy src',
+    'echo wdroz',
+    'gh pr create --title x --body "line one\ndeploy notes\nmore"',
+    'git commit -m "deploy: fix\n\nwdroz later"',
+    "ssh apps 'docker ps'",
+  ]) {
+    expect(await gated($, command)).toBe(false)
+  }
+  for (const command of [
+    'FOO=1 ./scripts/deploy.sh',
+    'supabase db push',
+    'vercel build && vercel deploy --prebuilt --prod',
+    'fly deploy',
+    'gh workflow run -R o/r wdroz.yml',
+    "ssh apps '/srv/zrodla/wdroz.sh --cofnij fryzapp'",
+    'ssh -p 22 apps sudo ./deploy.sh',
+    'bash scripts/wdroz-mnghub',
+  ]) {
+    expect(await gated($, command)).toBe(true)
+  }
+})
+
+test('zagnieżdżone powłoki i ostatnia deska', async ($, on) => {
+  await started($, on)
+  expect(await gated($, 'bash -c "git push origin main"')).toBe(true)
+  expect(await gated($, "sh -lc 'cd x && git push origin main'")).toBe(true)
+  expect(await gated($, 'pwsh -NoProfile -Command "git push origin main"', 'PowerShell')).toBe(true)
+  expect(await gated($, 'eval "git push origin main"')).toBe(true)
+  expect(await gated($, "bash -c './deploy.sh'")).toBe(true)
+  expect(await gated($, 'bash -c "git push origin feature/x"')).toBe(false)
+  // Rozbiór nie widzi celu: może iść do main.
+  const odd = await $.tool.call({ tool: 'Bash', command: 'git $(echo push) origin main' } as never)
+  expect(String(odd.deny ?? odd.text)).toContain('could not parse')
+  expect(await gated($, 'gh api -X PUT repos/o/r/pulls/12/merge')).toBe(true)
+  expect(await gated($, 'git stash push -m wip')).toBe(false)
+  expect(await gated($, 'git merge --abort')).toBe(false)
+  expect(await gated($, 'git log --merges')).toBe(false)
+})
+
+test('gh pr merge: bramka tylko dla bazy main, repo i PR przekazane do gh, błąd gh = odmowa', async ($, on) => {
+  const out = await started($, on)
+  expect(await gated($, 'gh pr merge 13 --squash')).toBe(false)
+  expect(await gated($, 'gh pr merge --squash 99')).toBe(true)
+  expect(await gated($, 'gh pr merge --squash --repo o/r 12 --delete-branch')).toBe(true)
+  expect(out.calls).toContain('gh pr view --repo o/r 12 --json headRefOid,baseRefName')
+  expect(await gated($, 'gh pr merge -R o/r --body x 13')).toBe(false)
+  expect(out.calls).toContain('gh pr view --repo o/r 13 --json headRefOid,baseRefName')
+})
+
+test('sprawdzany jest sha, który idzie do main: źródło refspecu, scalany ref', async ($, on) => {
+  await started($, on)
+  await review($, `verdict: ok sha: ${FEAT}`)
+  expect(await gated($, 'git push origin feature/x:main')).toBe(false)
+  expect(await gated($, 'git merge --no-ff -m "merge x" feature/x')).toBe(false)
+  const head = await $.tool.call({ tool: 'Bash', command: 'git push origin HEAD:main' } as never)
+  expect(String(head.deny ?? head.text)).toContain(`verdict: ok sha: ${HEAD}`)
+  expect(await gated($, 'git merge other')).toBe(true)
+})
+
+test('gałąź nieznana = może być main; cd i git -C sprawdzają swój katalog', async ($, on) => {
+  await started($, on)
+  expect(await gated($, 'cd ../other && git push')).toBe(false)
+  expect(await gated($, 'git -C ../other push')).toBe(false)
+  expect(await gated($, 'cd ../elsewhere && git push')).toBe(true)
+})
+
+test('gałąź nieczytelna albo odłączony HEAD: push blokowany', async ($, on) => {
+  await started($, on, (argv, init) => (argv.join(' ') === 'git branch --show-current' ? { exitCode: 0, stdout: '\n' } : git(argv, init)))
+  expect(await gated($, 'git push')).toBe(true)
+  expect(await gated($, 'git push origin feature/x')).toBe(false)
+})
+
+test('plik werdyktów: tylko commity, które repo zna', async ($, on) => {
+  // Wpis dla PR_HEAD jest w pliku, ale repo nie zna tego commita (np. podrzucony z innego klonu).
+  const file = JSON.stringify({ [HEAD.slice(0, 7)]: 'ok', [PR_HEAD.slice(0, 8)]: 'ok', zzz: 'ok', [FEAT]: 'maybe' })
+  const run = (argv: readonly string[], init?: Init): Run =>
+    argv.join(' ') === 'git cat-file --batch-check'
+      ? git(argv, { ...init, stdin: (init?.stdin ?? '').replace(/^feed.*$/gm, 'f00d') })
+      : git(argv, init)
+  await started($, on, run, { '.claude/sztab-przeglady.json': file })
+  expect(await gated($, 'git push origin HEAD:main')).toBe(false)
+  expect(await gated($, 'gh pr merge 12')).toBe(true)
+  expect(await gated($, 'git push origin feature/x:main')).toBe(true)
 })
