@@ -6,12 +6,10 @@ const settle = () => new Promise(r => (globalThis as unknown as { setTimeout: (f
 const HEAD = 'abc1234def5678901234567890abcdef12345678'
 const PR_HEAD = 'feed0001feed0001feed0001feed0001feed0001'
 const FEAT = 'beef0002beef0002beef0002beef0002beef0002'
-// Commity, które repo zna (git cat-file).
-const KNOWN = [HEAD, PR_HEAD, FEAT]
 const REFS: Record<string, string> = { HEAD, main: HEAD, 'feature/x': FEAT }
 
 type Run = { exitCode: number; stdout: string }
-type Init = { cwd?: string; stdin?: string }
+type Init = { cwd?: string }
 
 // Repo na gałęzi main: 1 commit przed upstreamem, otwarty PR z zielonym CI.
 // PR 13 idzie do development, PR 99 nie istnieje; katalog ../other jest na gałęzi feature.
@@ -31,14 +29,6 @@ function git(argv: readonly string[], init?: Init): Run {
     const sha = REFS[(argv[4] ?? '').replace(/\^\{commit\}$/, '')]
     return sha ? { exitCode: 0, stdout: `${sha}\n` } : { exitCode: 1, stdout: '' }
   }
-  if (cmd === 'git cat-file --batch-check') {
-    const out = (init?.stdin ?? '').split('\n').filter(Boolean).map(line => {
-      const name = line.replace(/\^\{commit\}$/, '')
-      const sha = KNOWN.find(k => k.startsWith(name))
-      return sha ? `${sha} commit 200` : `${line} missing`
-    })
-    return { exitCode: 0, stdout: `${out.join('\n')}\n` }
-  }
   if (cmd === 'gh pr view --json number,url,state,statusCheckRollup') {
     return {
       exitCode: 0,
@@ -54,7 +44,13 @@ function git(argv: readonly string[], init?: Init): Run {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function setup(on: any, run: (argv: readonly string[], init?: Init) => Run = git, files: Record<string, string> = {}) {
+function setup(on: any, run: (argv: readonly string[], init?: Init) => Run = git, store: Record<string, unknown> = {}, files: Record<string, string> = {}) {
+  on('session.repo', () => ({ value: { root: '/repo', origin: null } }) as never)
+  on('store.get', ($: unknown, e: { key: string }) => ({ value: store[e.key] }) as never)
+  on('store.set', ($: unknown, e: { key: string; value: unknown }) => {
+    store[e.key] = JSON.parse(JSON.stringify(e.value))
+    return { value: undefined } as never
+  })
   on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: 1000, window: 1000000, percent: 1 }, rateLimits: [] } }) as never)
   on('agent.list', () => ({ value: [] }) as never)
   on('command.register', () => ({ value: {} }) as never)
@@ -81,8 +77,7 @@ function setup(on: any, run: (argv: readonly string[], init?: Init) => Run = git
   on('turn.complete', ($: unknown, e: { answer: string }) => ({ text: e.answer }))
   on('tool.call', () => ({ result: { stdout: 'ok' }, text: 'ok' }) as never)
   on('prompt.submit', ($: unknown, e: { text: string }) => ({ text: e.text }))
-  // `calls` niewyliczalne: Object.entries(written) to tylko zapisane pliki.
-  return Object.defineProperty(written, 'calls', { value: calls }) as Record<string, string> & { calls: string[] }
+  return { written, calls, store }
 }
 
 // Odmowa bramki: { deny } albo wynik z błędem, zależnie od drogi wywołania.
@@ -136,7 +131,9 @@ test('sekcja Repo: gałąź, zmiany, commity, PR; werdykt recenzenta oznacza com
     expect(drawn).toContain('5 minutes ago · przejrzany')
     expect(drawn).toContain('2 days ago · nieprzejrzany')
   }
-  expect(JSON.parse(String(Object.entries(written).find(([path]) => path.endsWith('.claude/sztab-przeglady.json'))?.[1] ?? '{}'))).toEqual({ abc1234: 'ok' })
+  // Werdykt w magazynie wtyczki pod kluczem repo, nie w pliku w repo.
+  expect(written.store['przeglady:/repo']).toEqual({ abc1234: 'ok' })
+  expect(Object.keys(written.written).some(path => path.includes('sztab-przeglady'))).toBe(false)
 })
 
 test('poza repozytorium gita sekcji Repo nie ma', async ($, on) => {
@@ -205,8 +202,16 @@ async function gated($: any, command: string, tool: 'Bash' | 'PowerShell' = 'Bas
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function started($: any, on: any, run?: (argv: readonly string[], init?: Init) => Run, files?: Record<string, string>) {
-  const out = setup(on, run, files)
+async function started(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  $: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  on: any,
+  run?: (argv: readonly string[], init?: Init) => Run,
+  store?: Record<string, unknown>,
+  files?: Record<string, string>,
+) {
+  const out = setup(on, run, store, files)
   await $.session.start({ cwd: '/x', surface: 'desktop', isInteractive: true })
   await settle()
   return out
@@ -321,15 +326,54 @@ test('gałąź nieczytelna albo odłączony HEAD: push blokowany', async ($, on)
   expect(await gated($, 'git push origin feature/x')).toBe(false)
 })
 
-test('plik werdyktów: tylko commity, które repo zna', async ($, on) => {
-  // Wpis dla PR_HEAD jest w pliku, ale repo nie zna tego commita (np. podrzucony z innego klonu).
-  const file = JSON.stringify({ [HEAD.slice(0, 7)]: 'ok', [PR_HEAD.slice(0, 8)]: 'ok', zzz: 'ok', [FEAT]: 'maybe' })
-  const run = (argv: readonly string[], init?: Init): Run =>
-    argv.join(' ') === 'git cat-file --batch-check'
-      ? git(argv, { ...init, stdin: (init?.stdin ?? '').replace(/^feed.*$/gm, 'f00d') })
-      : git(argv, init)
-  await started($, on, run, { '.claude/sztab-przeglady.json': file })
-  expect(await gated($, 'git push origin HEAD:main')).toBe(false)
+test('werdykty: trwale w magazynie wtyczki, plik w repo pomijany', async ($, on) => {
+  // Podrzucony plik w repo z werdyktem ok dla HEAD nic nie daje.
+  const forged = JSON.stringify({ [HEAD]: 'ok', [PR_HEAD]: 'ok' })
+  await started($, on, git, { 'przeglady:/repo': { [FEAT.slice(0, 8)]: 'ok', zzz: 'ok', [PR_HEAD]: 'maybe' } }, { '.claude/sztab-przeglady.json': forged })
+  expect(await gated($, 'git push origin HEAD:main')).toBe(true)
   expect(await gated($, 'gh pr merge 12')).toBe(true)
-  expect(await gated($, 'git push origin feature/x:main')).toBe(true)
+  // Werdykt z poprzedniej sesji (magazyn) działa.
+  expect(await gated($, 'git push origin feature/x:main')).toBe(false)
+})
+
+test('heredoc i potok do powłoki, ssh czy interpretera są rozbierane', async ($, on) => {
+  await started($, on)
+  expect(await gated($, "bash <<'EOF'\ngit push origin HEAD:main\nEOF")).toBe(true)
+  expect(await gated($, 'cat <<EOF | sh\ngit push origin main\nEOF')).toBe(true)
+  expect(await gated($, "ssh apps <<'EOF'\n/srv/zrodla/wdroz.sh --cofnij\nEOF")).toBe(true)
+  expect(await gated($, "python3 <<'EOF'\nimport os\nos.system('git push origin main')\nEOF")).toBe(true)
+  expect(await gated($, "echo 'git push origin HEAD:main' | sh")).toBe(true)
+  expect(await gated($, "printf 'cd x\\n./deploy.sh\\n' | bash")).toBe(true)
+  // Tekst do pliku albo do nie-powłoki dalej jest tylko tekstem.
+  expect(await gated($, "cat <<'EOF' > notes.md\ngit push origin main\nEOF")).toBe(false)
+  expect(await gated($, "ssh apps <<'EOF'\ndocker ps\nEOF")).toBe(false)
+  expect(await gated($, "echo 'git push origin main' | grep push")).toBe(false)
+  expect(await gated($, "echo 'git push origin feature/x' | sh")).toBe(false)
+})
+
+test('subagent: katalog nieznany a HEAD/bieżąca gałąź do main = odmowa; znany z cd albo spawnu', async ($, on) => {
+  await started($, on)
+  const call = (command: string, agentId: string) => $.tool.call({ tool: 'Bash', command, agentId } as never)
+  const unknown = await call('git push origin HEAD:main', 'w1')
+  expect(String(unknown.deny ?? unknown.text)).toContain('Run it from the main session')
+  expect(blocked(await call('git push', 'w1'))).toBe(true)
+  // Jawny sha/gałąź nie zależy od katalogu.
+  await review($, `verdict: ok sha: ${FEAT}`)
+  expect(blocked(await call('git push origin feature/x:main', 'w1'))).toBe(false)
+  // `cd <ścieżka absolutna>` w poleceniu agenta: katalog znany, także dla następnych poleceń.
+  expect(blocked(await call('cd /wt/other && git status', 'w1'))).toBe(false)
+  const known = await call('git push origin HEAD:main', 'w1')
+  expect(String(known.deny ?? known.text)).not.toContain('working directory is unknown')
+  expect(String(known.deny ?? known.text)).toContain(`verdict: ok sha: ${HEAD}`)
+  // Katalog z wywołania Agent (cwd).
+  await $.agent.spawn({ prompt: 'x', description: 'PAW-4 Zmiana', subagentType: 'sztab:rzemieslnik', cwd: '../other' } as never)
+  expect(blocked(await call('git push', 'r1'))).toBe(false)
+})
+
+test('wdrożenie po sudo/env/nice/timeout z flagami', async ($, on) => {
+  await started($, on)
+  for (const command of ['sudo -u root ./deploy.sh', 'env -u FOO BAR=1 ./scripts/wdroz-mnghub', 'nice -n 10 ./deploy.sh', 'timeout -s KILL 30 ./deploy.sh']) {
+    expect(await gated($, command)).toBe(true)
+  }
+  expect(await gated($, 'sudo -u root cat deploy.log')).toBe(false)
 })

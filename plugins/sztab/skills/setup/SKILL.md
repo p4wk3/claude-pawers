@@ -45,8 +45,7 @@ to też poprawna odpowiedź.
 
 Pokaż, co zrobisz, i poczekaj na „tak”. Potem:
 
-1. `.gitignore` repo: dopisz `.claude/zadania.json`, `.claude/sztab-koszty.json` i `.claude/sztab-przeglady.json`,
-   jeśli ich nie ma.
+1. `.gitignore` repo: dopisz `.claude/zadania.json` i `.claude/sztab-koszty.json`, jeśli ich nie ma.
 2. Cel: `node <zadanie.mjs> cel "<nazwa>" [termin]`.
 3. Zadania:
    - Linear: pobierz otwarte zadania zespołu (Todo, In Progress, Review) i dla każdego

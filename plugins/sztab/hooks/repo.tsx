@@ -9,10 +9,10 @@ import type { RepoCommit, RepoSnap, Werdykt } from '../types'
 const repo = atom({ plugin: 'sztab', key: 'repo' } as const, null)
 const przeglady = atom({ plugin: 'sztab', key: 'przeglady' } as const, {})
 const zgoda = atom({ plugin: 'sztab', key: 'zgoda' } as const, { bezPrzegladu: false, wdrazaj: false })
+const agentCwd = atom({ plugin: 'sztab', key: 'agentCwd' } as const, {})
 // Ten sam klucz co w register.tsx: typ agenta po id.
 const agents = atom({ plugin: 'sztab', key: 'agents' } as const, [])
 
-const PRZEGLADY = '.claude/sztab-przeglady.json'
 const MAIN = new Set(['main', 'master'])
 const VERDICT_RE = /^verdict:\s*(ok|changes|reject)\s+sha:\s*([0-9a-f]{7,40})/gim
 // Nazwa skryptu/komendy wdrożenia (`wdroz-mnghub`, `./deploy.sh`) i workflow (`deploy.yml`).
@@ -24,9 +24,9 @@ const CONSENT_NO_REVIEW = /^\s*(bez\s+przegl[aą]du|skip\s+review)(?![\p{L}\p{N}
 // Prompty, które pisze człowiek; wtyczka, agent czy harmonogram nie dają zgody.
 const HUMAN = new Set(['composer', 'bridge', 'slack-ping'])
 
-async function run($: EngineInterface, argv: string[], cwd?: string, stdin?: string): Promise<{ exitCode: number; stdout: string } | null> {
+async function run($: EngineInterface, argv: string[], cwd?: string): Promise<{ exitCode: number; stdout: string } | null> {
   try {
-    return await $.process.run(argv, { timeoutMs: 10000, ...(cwd ? { cwd } : {}), ...(stdin !== undefined ? { stdin } : {}) })
+    return await $.process.run(argv, { timeoutMs: 10000, ...(cwd ? { cwd } : {}) })
   } catch {
     return null
   }
@@ -103,9 +103,21 @@ function verdictFor(sha: string, all: Record<string, Werdykt>): Werdykt | undefi
   return key ? all[key] : undefined
 }
 
-async function readPrzeglady($: EngineInterface): Promise<Record<string, Werdykt>> {
+// Werdykty trzyma magazyn wtyczki (poza drzewem roboczym, więc nie da się ich podrzucić plikiem
+// w repo), pod kluczem repozytorium: główny katalog repo (wspólny dla jego worktree) albo cwd.
+async function przegladyKey($: EngineInterface): Promise<string> {
+  let root: string | undefined
   try {
-    const raw = JSON.parse(await $.fs.read(PRZEGLADY)) as unknown
+    root = (await $.session.repo())?.root
+  } catch {
+    root = undefined
+  }
+  return `przeglady:${(root ?? (await $.session.cwd())).replace(/\\/g, '/').toLowerCase()}`
+}
+
+async function loadPrzeglady($: EngineInterface): Promise<Record<string, Werdykt>> {
+  try {
+    const raw = await $.store.get(await przegladyKey($))
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
     return Object.fromEntries(
       Object.entries(raw as Record<string, unknown>).filter(
@@ -117,22 +129,10 @@ async function readPrzeglady($: EngineInterface): Promise<Record<string, Werdykt
   }
 }
 
-// Plik leży w repo i każdy może go dopisać: wierzymy tylko werdyktom commitów, które repo zna.
-async function loadPrzeglady($: EngineInterface): Promise<Record<string, Werdykt>> {
-  const all = await readPrzeglady($)
-  const shas = Object.keys(all)
-  if (shas.length === 0) return {}
-  const out = await run($, ['git', 'cat-file', '--batch-check'], undefined, `${shas.map(s => `${s}^{commit}`).join('\n')}\n`)
-  if (out?.exitCode !== 0) return {}
-  const lines = out.stdout.split('\n').filter(Boolean)
-  return Object.fromEntries(shas.filter((_, i) => / commit \d+\r?$/.test(lines[i] ?? '')).map(s => [s, all[s] as Werdykt]))
-}
-
 async function savePrzeglad($: EngineInterface, sha: string, verdict: Werdykt): Promise<void> {
   await update($, przeglady, prev => ({ ...prev, [sha]: verdict }))
-  const all = { ...(await readPrzeglady($)), [sha]: verdict }
   try {
-    await $.fs.write(PRZEGLADY, `${JSON.stringify(all, null, 2)}\n`)
+    await $.store.set(await przegladyKey($), { ...(await loadPrzeglady($)), [sha]: verdict })
   } catch {
     // brak zapisu: werdykt zostaje w stanie sesji
   }
@@ -140,12 +140,34 @@ async function savePrzeglad($: EngineInterface, sha: string, verdict: Werdykt): 
 
 // --- Rozbiór polecenia powłoki ---
 
-// Kawałek polecenia: słowa bez cudzysłowów; `bare` to tylko słowa spoza cudzysłowów (do ostatniej deski).
-type Seg = { words: string[]; bare: string[] }
+// Kawałek polecenia: słowa bez cudzysłowów; `bare` to tylko słowa spoza cudzysłowów (do ostatniej deski);
+// `sep` to separator, który go zakończył (`|` = wyjście idzie do następnego kawałka).
+type Seg = { words: string[]; bare: string[]; sep: string }
+// Tekst podany poleceniu na wejście (ciało heredoca): `target` to polecenie, które go wykona.
+type Fed = { target: string; text: string }
+
+// Polecenia, które wykonują tekst z wejścia.
+const FEEDABLE = new Set(['bash', 'sh', 'zsh', 'dash', 'pwsh', 'powershell', 'ssh', 'python', 'python3', 'py', 'node', 'deno', 'bun', 'ruby', 'perl'])
+
+// Kto dostaje ciało heredoca zaczętego w `pos`: pierwszy FEEDABLE z etapów potoku od tego miejsca
+// do końca linii (`bash <<EOF`, `cat <<EOF | sh`).
+function feedTarget(text: string, pos: number): string | undefined {
+  const start = Math.max(...[';', '&', '\n', '('].map(c => text.lastIndexOf(c, pos))) + 1
+  const nl = text.indexOf('\n', pos)
+  const line = text.slice(start, nl < 0 ? text.length : nl)
+  for (const s of line.split('|')) {
+    const words = s.trim().split(/\s+/)
+    const name = baseName(words[headIndex(words)] ?? '')
+    if (FEEDABLE.has(name)) return name
+  }
+  return undefined
+}
 
 // Ciała heredoców (`<<'EOF' … EOF`, także w `$(cat <<EOF …)`) i here-stringów PowerShella
-// (`@' … '@`) to tekst, nie polecenia: wycinamy je przed podziałem.
-function stripBodies(cmd: string): string {
+// (`@' … '@`) to tekst, nie polecenia: wycinamy je przed podziałem. Ciało podane powłoce, ssh
+// czy interpreterowi wraca w `fed` do osobnego rozbioru.
+function stripBodies(cmd: string): { text: string; fed: Fed[] } {
+  const fed: Fed[] = []
   let out = cmd.replace(/@(['"])\r?\n[\s\S]*?\r?\n\1@/g, "''")
   const re = /(?<!<)<<(?!<)-?[ \t]*(['"]?)([A-Za-z_][\w.-]*)\1/g
   let m: RegExpExecArray | null
@@ -159,17 +181,19 @@ function stripBodies(cmd: string): string {
       return t === delim || (t.startsWith(delim) && /^[)"'`;&|\s]/.test(t.slice(delim.length)))
     })
     if (end < 0) continue
+    const target = feedTarget(out, m.index)
+    if (target) fed.push({ target, text: lines.slice(0, end).join('\n') })
     const rest = (lines[end] ?? '').trim().slice(delim.length)
     out = `${out.slice(0, nl + 1)}${rest}\n${lines.slice(end + 1).join('\n')}`
     re.lastIndex = m.index + m[0].length
   }
-  return out
+  return { text: out, fed }
 }
 
 // Polecenie na kawałki po `&&`, `||`, `;`, `|`, `&`, nowej linii, `(`, `)` (i backticku w bashu);
 // separatory w cudzysłowach nie dzielą. Kontynuacje linii (`\` albo PowerShellowy backtick) łączone.
-function lex(cmd: string, ps: boolean): Seg[] {
-  const src = stripBodies(cmd.replace(/\\\r?\n/g, ' ').replace(/`\r?\n/g, ' '))
+function lex(cmd: string, ps: boolean): { segs: Seg[]; fed: Fed[] } {
+  const { text: src, fed } = stripBodies(cmd.replace(/\\\r?\n/g, ' ').replace(/`\r?\n/g, ' '))
   const esc = ps ? '`' : '\\'
   const segs: Seg[] = []
   let words: string[] = []
@@ -186,9 +210,9 @@ function lex(cmd: string, ps: boolean): Seg[] {
     has = false
     quoted = false
   }
-  const endSeg = () => {
+  const endSeg = (sep: string) => {
     endWord()
-    if (words.length > 0) segs.push({ words, bare })
+    if (words.length > 0) segs.push({ words, bare, sep })
     words = []
     bare = []
   }
@@ -216,15 +240,18 @@ function lex(cmd: string, ps: boolean): Seg[] {
       i = (j < 0 ? src.length : j) - 1
     } else if (c === ' ' || c === '\t' || c === '\r') {
       endWord()
+    } else if ((c === '|' || c === '&') && src[i + 1] === c) {
+      endSeg(c + c)
+      i++
     } else if ('\n;&|()'.includes(c) || (!ps && c === '`')) {
-      endSeg()
+      endSeg(c)
     } else {
       w += c
       has = true
     }
   }
-  endSeg()
-  return segs
+  endSeg('')
+  return { segs, fed }
 }
 
 const isExe = (w: string | undefined, name: string) =>
@@ -325,7 +352,38 @@ function gateOf(words: string[], cwd: string | undefined): { gate?: Gate; seen: 
 
 // --- Wdrożenie: pierwsze słowo kawałka to skrypt albo komenda wdrożenia ---
 
-const PREFIX = new Set(['sudo', 'env', 'time', 'nohup', 'exec', 'command', '.', 'source', 'call'])
+// Słowa przed właściwym poleceniem i ich flagi z wartością (`sudo -u root x`, `timeout 30 x`).
+const PREFIX: Record<string, Set<string>> = {
+  sudo: new Set(['-u', '-g', '-C', '-h', '-p', '-U', '-r', '-t', '-D', '--user', '--group']),
+  env: new Set(['-u', '-C', '-S', '--unset', '--chdir']),
+  nice: new Set(['-n', '--adjustment']),
+  timeout: new Set(['-s', '-k', '--signal', '--kill-after']),
+  time: new Set(['-f', '-o']),
+  nohup: new Set(),
+  exec: new Set(['-a']),
+  command: new Set(),
+  '.': new Set(),
+  source: new Set(),
+  call: new Set(),
+}
+
+// Indeks właściwego polecenia: po przypisaniach `FOO=1` i prefiksach z ich flagami.
+function headIndex(words: string[]): number {
+  let i = 0
+  while (i < words.length) {
+    const w = words[i] ?? ''
+    if (/^[A-Za-z_]\w*=/.test(w)) {
+      i++
+      continue
+    }
+    const flags = Object.hasOwn(PREFIX, w) ? PREFIX[w] : undefined
+    if (!flags) break
+    i++
+    while (i < words.length && ((words[i] ?? '').startsWith('-') || /^[A-Za-z_]\w*=/.test(words[i] ?? ''))) i += flags.has(words[i] ?? '') ? 2 : 1
+    if (w === 'timeout' && /^\d/.test(words[i] ?? '')) i++
+  }
+  return i
+}
 const INTERP = new Set(['node', 'python', 'python3', 'py', 'bash', 'sh', 'zsh', 'pwsh', 'powershell', 'deno', 'bun', 'tsx', 'ruby', 'perl'])
 const RUNNERS = new Set(['npm', 'pnpm', 'yarn', 'make', 'just'])
 const RUNNER_VALUE_FLAGS = new Set(['--filter', '-F', '-C', '--dir', '--prefix', '-w', '--workspace', '-f', '--file'])
@@ -345,8 +403,7 @@ function positional(words: string[], from: number, valueFlags: Set<string>, skip
 }
 
 function isDeploy(words: string[], ps: boolean, depth: number): boolean {
-  let i = 0
-  while (i < words.length && (/^[A-Za-z_]\w*=/.test(words[i] ?? '') || PREFIX.has(words[i] ?? '') || (i > 0 && (words[i] ?? '').startsWith('-')))) i++
+  const i = headIndex(words)
   const head = words[i]
   if (head === undefined) return false
   const name = baseName(head)
@@ -367,14 +424,52 @@ function isDeploy(words: string[], ps: boolean, depth: number): boolean {
   return DEPLOY_NAME.test(name)
 }
 
-type Analysis = { gates: Gate[]; deploy: boolean; unparsed: boolean }
+// `cwd`: katalog po ostatnim `cd` w poleceniu (jeśli był).
+type Analysis = { gates: Gate[]; deploy: boolean; unparsed: boolean; cwd?: string }
+
+// Tekst wykonany przez powłokę/ssh/interpreter z wejścia (heredoc, `echo … | sh`).
+function analyzeFed(f: Fed, depth: number): Analysis {
+  if (depth >= 3) return { gates: [], deploy: false, unparsed: true }
+  if (f.target === 'ssh') return { gates: [], deploy: analyze(f.text, false, depth + 1).deploy, unparsed: false }
+  if (SHELLS.includes(f.target)) return analyze(f.text, false, depth + 1)
+  if (f.target === 'pwsh' || f.target === 'powershell') return analyze(f.text, true, depth + 1)
+  // Kod interpretera: nie rozbieramy go, ale git push/merge albo skrypt wdrożenia w nim blokują.
+  const lines = f.text.split('\n').map(l => l.trim().split(/\s+/))
+  return {
+    gates: [],
+    deploy: lines.some(l => DEPLOY_NAME.test(baseName(l[headIndex(l)] ?? ''))),
+    unparsed: /\bgit\b[^\n]*\b(push|merge)(?![\w-])/.test(f.text),
+  }
+}
+
+// Co `echo`/`printf` wypisuje do potoku; undefined, gdy tego nie widać (np. `cat plik`).
+function echoed(words: string[]): string | undefined {
+  const i = headIndex(words)
+  const name = baseName(words[i] ?? '')
+  if (name === 'echo' || name === 'write-output') return words.slice(i + 1).filter(w => !/^-[neE]+$/.test(w)).join(' ')
+  if (name === 'printf') return (words[i + 1] ?? '').replace(/\\n/g, '\n')
+  return undefined
+}
 
 function analyze(cmd: string, ps: boolean, depth = 0): Analysis {
   const res: Analysis = { gates: [], deploy: false, unparsed: false }
-  const segs = lex(cmd, ps)
+  const { segs, fed } = lex(cmd, ps)
+  const merge = (inner: Analysis, cwd?: string) => {
+    res.gates.push(...inner.gates.map(g => ({ ...g, cwd: g.cwd ? joinDir(cwd, g.cwd) : cwd })))
+    res.deploy ||= inner.deploy
+    res.unparsed ||= inner.unparsed
+  }
+  for (const f of fed) merge(analyzeFed(f, depth))
   let cwd: string | undefined
   let seen = false
-  for (const s of segs) {
+  for (const [k, s] of segs.entries()) {
+    // `echo '<polecenie>' | sh`: wypisany tekst wykona następny kawałek.
+    const next = segs[k + 1]
+    const target = s.sep === '|' && next ? baseName(next.words[headIndex(next.words)] ?? '') : ''
+    if (FEEDABLE.has(target)) {
+      const text = echoed(s.words)
+      if (text !== undefined) merge(analyzeFed({ target, text }, depth), cwd)
+    }
     const w0 = (s.words[0] ?? '').toLowerCase()
     if (['cd', 'pushd', 'chdir', 'set-location', 'sl'].includes(w0)) {
       cwd = joinDir(cwd, s.words.slice(1).find(w => !w.startsWith('-')) ?? '~')
@@ -382,10 +477,7 @@ function analyze(cmd: string, ps: boolean, depth = 0): Analysis {
     }
     const nested = depth < 3 ? nestedOf(s.words, ps) : undefined
     if (nested) {
-      const inner = analyze(nested.cmd, nested.ps, depth + 1)
-      res.gates.push(...inner.gates.map(g => ({ ...g, cwd: g.cwd ? joinDir(cwd, g.cwd) : cwd })))
-      res.deploy ||= inner.deploy
-      res.unparsed ||= inner.unparsed
+      merge(analyze(nested.cmd, nested.ps, depth + 1), cwd)
       continue
     }
     const g = gateOf(s.words, cwd)
@@ -404,6 +496,7 @@ function analyze(cmd: string, ps: boolean, depth = 0): Analysis {
     const gh = bare.some(w => isExe(w, 'gh')) && bare.includes('pr') && bare.includes('merge')
     if (git || gh) res.unparsed = true
   }
+  res.cwd = cwd
   return res
 }
 
@@ -415,7 +508,7 @@ function mayHitMain(g: Gate): boolean {
 const PR_VALUE_FLAGS = new Set(['-R', '--repo', '-t', '--subject', '-b', '--body', '-F', '--body-file', '-A', '--author-email', '--match-head-commit'])
 
 // Głowa i baza PR-a z `gh pr view`, z tym samym repo i PR-em co `gh pr merge`.
-async function prInfo($: EngineInterface, args: string[], cwd?: string): Promise<{ head: string; base: string } | undefined> {
+function prView(args: string[]): { argv: string[]; target?: string } {
   const argv = ['gh', 'pr', 'view']
   let target: string | undefined
   for (let k = 0; k < args.length; k++) {
@@ -427,6 +520,11 @@ async function prInfo($: EngineInterface, args: string[], cwd?: string): Promise
     else if (!w.startsWith('-') && target === undefined) target = w
   }
   if (target !== undefined) argv.push(target)
+  return { argv, target }
+}
+
+async function prInfo($: EngineInterface, args: string[], cwd?: string): Promise<{ head: string; base: string } | undefined> {
+  const { argv } = prView(args)
   const out = await run($, [...argv, '--json', 'headRefOid,baseRefName'], cwd)
   if (out?.exitCode !== 0) return undefined
   try {
@@ -470,18 +568,45 @@ const DENY_UNPARSED = (cmd: string) =>
   '(e.g. `git push origin <branch>`, `gh pr merge <n>`) so the gate can check the target.' +
   UNBLOCK_OWNER
 
+const DENY_AGENT_CWD = (cmd: string) =>
+  `sztab: blocked \`${cmd.slice(0, 80)}\`. This subagent's working directory is unknown to the gate, so HEAD or the ` +
+  'current branch may resolve in the wrong checkout before going into main/master. Run it from the main session or ' +
+  'pass an explicit sha/branch (e.g. `git push origin <sha>:main`, `gh pr merge <n>`), or prefix it with ' +
+  '`cd <absolute worktree path> &&`.' +
+  UNBLOCK_OWNER
+
 const DENY_DEPLOY = (cmd: string) =>
   `sztab: blocked \`${cmd.slice(0, 80)}\`. Deploys need the owner's explicit go-ahead. ` +
   'Ask the owner to start their prompt with "wdrażaj" (or "deploy now"); it allows the next deploy command once.'
 
 // Zwraca powód odmowy albo undefined, gdy polecenie może iść.
-async function judge($: EngineInterface, cmd: string, ps: boolean): Promise<string | undefined> {
+// Czy bramka rozwiązuje coś względem katalogu roboczego: HEAD/@, bieżąca gałąź, PR bieżącej gałęzi.
+function relative(g: Gate): boolean {
+  if (g.kind === 'pr') return prView(g.args).target === undefined
+  return g.targets.some(t => t.dst === null || (t.src !== null && /^(HEAD|@)/.test(t.src)))
+}
+
+async function judge($: EngineInterface, cmd: string, ps: boolean, agentId?: string): Promise<string | undefined> {
   const a = analyze(cmd, ps)
-  const gates = a.gates.filter(mayHitMain)
+  // Subagent: katalog z agent.spawn albo z jego `cd /ścieżka` (worktree); bez niego nie wiemy, gdzie jest HEAD.
+  let base: string | undefined
+  let baseKnown = !agentId
+  if (agentId) {
+    const dirs = await read($, agentCwd)
+    const cd = a.cwd !== undefined && isAbs(a.cwd) ? a.cwd : undefined
+    if (cd && dirs[agentId] !== cd) await update($, agentCwd, prev => ({ ...prev, [agentId]: cd }))
+    base = dirs[agentId]
+    baseKnown = base !== undefined
+  }
+  const gates = a.gates.filter(mayHitMain).map(g => ({ ...g, cwd: g.cwd ? joinDir(base, g.cwd) : base }))
   if (gates.length === 0 && !a.deploy && !a.unparsed) return undefined
 
   const z = await read($, zgoda)
-  let reviewDenied = a.unparsed ? DENY_UNPARSED(cmd) : undefined
+  let reviewDenied = a.unparsed
+    ? DENY_UNPARSED(cmd)
+    : !baseKnown && gates.some(g => relative(g) && !(g.cwd && isAbs(g.cwd)))
+      ? DENY_AGENT_CWD(cmd)
+      : undefined
   if (!reviewDenied && gates.length > 0) {
     const all = await read($, przeglady)
     // Gałąź nieznana (błąd, odłączony HEAD) = może być main.
@@ -649,12 +774,21 @@ export function registerRepo(on: Parameters<Register>[0]): void {
     return next(e)
   }).catch(($, e, next) => next(e))
 
+  // Katalog subagenta, gdy wywołanie Agent go podało (worktree bez `cwd` poznamy po jego `cd`).
+  on('agent.spawn', { subagentType: /./ }, async ($, e, next) => {
+    const result = await next(e)
+    const id = result.agentId
+    const dir = e.cwd
+    if (id && dir) await update($, agentCwd, prev => ({ ...prev, [id]: dir }))
+    return result
+  }).catch(($, e, next) => next(e))
+
   // Bramka: merge/push do main po werdykcie recenzenta, wdrożenie po „wdrażaj”.
   // Z matcherem, bo hook czynności w register.tsx zajmuje tool.call bez matchera.
   on('tool.call', { tool: ['Bash', 'PowerShell'] }, async ($, e, next) => {
     const c = commandOf(e)
     if (c === undefined) return next(e)
-    const deny = await judge($, c.cmd, c.ps)
+    const deny = await judge($, c.cmd, c.ps, e.agentId)
     return deny ? { deny } : next(e)
   }).catch(($, e, next) => {
     if (next.called) return next(e)

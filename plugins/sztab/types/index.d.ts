@@ -91,10 +91,12 @@ declare module 'claude-code' {
       // Zasady rozmowy w prompcie (.claude/sztab.json `rozmowa`); null = jeszcze nie czytane.
       rozmowa: boolean | null
       repo: RepoSnap | null
-      // Werdykty recenzenta po sha (też w .claude/sztab-przeglady.json).
+      // Werdykty recenzenta po sha (trwale w $.store wtyczki, pod kluczem repo).
       przeglady: Record<string, Werdykt>
       // Zgoda z ostatniego promptu właściciela, na jedno polecenie.
       zgoda: { bezPrzegladu: boolean; wdrazaj: boolean }
+      // Katalog roboczy subagenta po id (z agent.spawn albo z `cd <ścieżka absolutna>` w jego poleceniach).
+      agentCwd: Record<string, string>
     }
   }
 }
