@@ -16,6 +16,7 @@ desktopowej). Aktualizacja wszystkich: `claude plugin marketplace update pawers`
 | Plugin | Co daje |
 |---|---|
 | [`sztab`](plugins/sztab) | Orkiestrator z 5 subagentami (zwiadowca, badacz, rzemieślnik, recenzent, tester), panel `/sztab` z agentami, repo i kosztami, bramka przeglądu przed `main`, pasek MVP, `/raport` na start i `/podsumowanie` na koniec sesji. Zadania i pasek wymagają Lineara albo pliku `.claude/zadania.json` |
+| [`mcp-per-workspace`](plugins/mcp-per-workspace) | Jeden skill: ten sam serwer MCP (Linear, Notion, Supabase…) w każdym repo pod innym workspace'em — osobna nazwa serwera w `.mcp.json`, osobna autoryzacja przez `/mcp` albo klucz API z `.env` |
 
 ## Zmiany i nowe pluginy
 

@@ -9,6 +9,11 @@
       "name": "sztab",
       "source": "./plugins/sztab",
       "description": "Orkiestrator z 5 subagentami, panel /sztab (agenci, repo, koszty), bramka przeglądu przed main, pasek MVP, /raport i /podsumowanie"
+    },
+    {
+      "name": "mcp-per-workspace",
+      "source": "./plugins/mcp-per-workspace",
+      "description": "Ten sam serwer MCP w każdym repo pod innym workspace'em — osobna nazwa w .mcp.json, osobna autoryzacja przez /mcp albo klucz API z .env"
     }
   ]
 }

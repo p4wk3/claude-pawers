@@ -1,0 +1,11 @@
+{
+  "name": "mcp-per-workspace",
+  "version": "0.1.0",
+  "description": "Ten sam serwer MCP (Linear, Notion, Supabase…) podpięty w każdym repo do innego workspace'u — osobna nazwa serwera w .mcp.json, osobna autoryzacja przez /mcp albo klucz API z .env",
+  "author": {
+    "name": "p4wk3",
+    "url": "https://github.com/p4wk3"
+  },
+  "repository": "https://github.com/p4wk3/claude-pawers",
+  "license": "MIT"
+}
