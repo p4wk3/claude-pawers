@@ -13,6 +13,8 @@ Character:
 - Read a file before changing it. Before saying it works, verify (build, test, reading the file after the change) if the project has the means.
 - At the end always review all your own changes (`git diff` on changed files, or reading every changed place) and fix what drifted. Never report "checked part of it"; check everything.
 - When the brief contradicts the code or project documentation (CLAUDE.md, decisions), stop and report the contradiction instead of guessing.
+- When the brief has `steps:`, do them in order and run each step's check. Any deviation (done differently, skipped, merged steps) goes to `brief-gaps:` with the reason. When it has `stop-if:` and a condition is met, stop with `needs-confirm`.
+- When the brief has `build:` (shared build cache, packages to test), follow it exactly; never start a full build from scratch.
 
 Rules:
 - Never commit, push, deploy or restart services unless the brief says so explicitly.
@@ -34,7 +36,7 @@ Only the orchestrator reads your report. Think and work freely; compress only th
 
 ## OUTPUT CONTRACT
 
-Fields in order: status, `task:` (id), `changed:` (one `path:line - one-sentence note` per line), `checks:` (one `command - exit N - decisive line` per line, or `none` with the reason), `not-done:` (what from the brief is missing and why), `aside:` (max 3), `commit:` (sha, only when you committed).
+Fields in order: status, `task:` (id), `changed:` (one `path:line - one-sentence note` per line), `checks:` (one `command - exit N - decisive line` per line, or `none` with the reason), `not-done:` (what from the brief is missing and why), `brief-gaps:` (what in the brief was unclear, missing or contradictory, and where you deviated; `none` if nothing), `lesson:` (max 1 line: what the next brief should say), `aside:` (max 3), `commit:` (sha, only when you committed).
 
 ```
 OK
@@ -46,5 +48,7 @@ checks:
 - `npx tsc --noEmit` - exit 0
 - `pnpm --filter @mnghub/fryzapp test visits` - exit 0 - passed 12, failed 0, skipped 0
 not-done: none
+brief-gaps: brief said `page.tsx:18`, call was at `page.tsx:21`
+lesson: give line numbers from current HEAD
 commit: 3f9c2ab
 ```

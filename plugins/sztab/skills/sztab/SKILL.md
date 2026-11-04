@@ -53,11 +53,17 @@ Agenci z tej wtyczki mają przedrostek `sztab:` (`subagent_type: "sztab:zwiadowc
 | `sztab:tester` | sonnet | sprawdzenie na żywo w przeglądarce: kryteria „gotowe, gdy…”, role, widoki mobilne, błędy w konsoli, zapis danych | edycji kodu |
 | `sztab:recenzent` | sonnet | przegląd diffu albo planu przed PR-em i merge'em | pisania poprawek |
 
-- Kod wymagający projektowania (nowy moduł, schemat bazy, uprawnienia, wspólne pakiety) — rzemieślnik
-  z `model: "opus"`. Mechaniczne rzeczy (testy według instrukcji, teksty, dokumentacja z listy) —
-  sonnet albo haiku.
+- **Rzemieślnik domyślnie na sonnecie**, ze zleceniem krok po kroku (sekcja 4: `steps:`, `stop-if:`).
+  `model: "opus"` tylko wtedy, gdy w zleceniu zostaje otwarta decyzja projektowa, której nie da się
+  rozpisać na kroki. Opus nie leczy powolności: w teście sesja Opusa trwała 57 min, prawie cały czas
+  kompilacja od zera w świeżym worktree; Sonnet ze wspólnym cache kompilacji — 3,5 min, wynik poprawny.
 - Rzemieślnik zmieniający kod pracuje w **osobnym worktree** (`isolation: "worktree"`), na własnej
   gałęzi — wtedy kilku może iść równolegle, a główny checkout zostaje czysty.
+- **Świeży worktree nie ma cache ani zależności.** W projektach kompilowanych zlecenie podaje wspólny
+  katalog kompilacji głównego repo (np. `export CARGO_TARGET_DIR=<repo>/target`), testy tylko
+  zmienionych pakietów. Nigdy pełnej kompilacji od zera w każdym worktree.
+- Nie dodawaj stałego „menedżera” ani drugiego orkiestratora: porządek (stan, tracker, worktree,
+  zlecenia) trzymasz Ty, a księgowość robią skrypty i hooki.
 
 ## 3. Kolejność
 
@@ -68,7 +74,13 @@ Domyślnie **po kolei, nie wszystko naraz**:
 3. **Ty** zamieniasz ustalenia na listę zmian. Co wymaga decyzji właściciela — pytasz, prostym językiem,
    z przykładem tego, co zobaczy użytkownik. Reszta idzie dalej.
 4. **Rzemieślnik** wykonuje listę. Niezależne części (różne pliki, różne moduły) — kilku równolegle,
-   każdy w swoim worktree; ten sam plik — nigdy dwóch naraz.
+   każdy w swoim worktree; ten sam plik — nigdy dwóch naraz. Worktree rzemieślnika nie scalasz ani nie
+   usuwasz, dopóki nie przejdzie przeglądu (kroki 5–6).
+   **Bramka Opus (tylko przy ryzyku):** gdy pisał Sonnet, a zmiana dotyka wspólnych pakietów, schematu
+   bazy, uprawnień, zapisu danych albo raport ma `FAIL`/`PARTIAL` — przegląd robi `sztab:recenzent`
+   z `model: "opus"` (zamiast zwykłego, nie obok). Ocenia też trzymanie się zlecenia
+   (`instruction-following:`). Przy mechanicznych zmianach z zielonymi `checks:` wystarczy recenzent na
+   sonnecie: w teście przegląd Opusem kosztował 2× więcej tokenów niż sama praca i znalazł tylko drobiazgi.
 5. **Tester** — przy zmianach w UI i wszystkim, co widzi użytkownik — sprawdza wynik na żywo
    w przeglądarce na lokalnej aplikacji: kryteria `done-when`, role, widoki 375/768 px i desktop, błędy
    w konsoli i sieci, czy dane naprawdę się zapisały. Przed recenzentem albo równolegle z nim. Zawsze
@@ -93,21 +105,35 @@ repo: /path/to/worktree (branch mng-140); start at src/lib/visits.ts:42
 scope:
 - src/lib/visits.ts:42 - filter `listVisits` by `currentLocationId`
 - src/app/visits/page.tsx - pass the id; empty state text `Brak wizyt`
+steps:
+1. src/lib/visits.ts:42 - add param `locationId: string` to `listVisits`; check: tsc passes
+2. add `.eq("location_id", locationId)` before `.order(...)`; check: test `visits` passes
+3. src/app/visits/page.tsx:18 - pass `currentLocationId`; check: tsc passes
+stop-if: `listVisits` has other callers than page.tsx; any step needs a file outside scope
 done-when: list shows only visits of the current location; typecheck passes
-no: no push; do not touch src/lib/labels.ts (another agent edits it)
+no: no push; do not touch src/lib/labels.ts (another agent edits it); max 2 files, one commit
 rules: RLS is organization-scoped; `"use server"` files export only async functions
+build: shared cache path, which packages to test, what never to run (full build, release, e2e)
 checks: `npx tsc --noEmit`, `pnpm --filter @mnghub/fryzapp test visits`
-report: sztab-speak
+report: sztab-speak; report before commit
 ```
 
 - **`task`** — id zadania i jedno zdanie po co.
 - **`scope`** — lista punktów; przy poprawkach każdy z miejscem (`plik:linia`) i treścią. Pełne ścieżki
   (repo, worktree, gałąź), od czego zacząć.
+- **`steps`** — dla Sonneta obowiązkowo: numerowane kroki, każdy z jedną czynnością, miejscem i
+  sprawdzeniem. Gotowe fragmenty kodu i dokładne teksty, gdy je znasz. Wypisuj **wszystkie** ścieżki,
+  których zmiana dotyczy (np. każdy klawisz i przycisk, nie „litery”). Mów, gdzie dokładnie ma stać
+  nowy kod względem istniejącego (przed/po czym), i czy test wymagający GPU, sieci albo bazy jest
+  dopuszczalny.
+- **`stop-if`** — kiedy przerwać i zgłosić `needs-confirm` zamiast zgadywać (kod inny niż w zleceniu,
+  potrzeba pliku spoza zakresu).
 - **`done-when`** — sprawdzalne kryteria; tester weryfikuje je jeden po drugim.
 - **`no`** — granice: czego nie ruszać, „no commit” albo „commit on branch X, no push”, „do not create
   file Y (another agent does)”.
-- **Zasady projektu, które mogą ugryźć** (`rules:`) — wypisz z `CLAUDE.md` te, które go dotyczą. Nie
-  zakładaj, że agent je sam znajdzie.
+- **Zasady projektu, które mogą ugryźć** (`rules:`) — obowiązkowo; wypisz z `CLAUDE.md` te, które go
+  dotyczą. Nie zakładaj, że agent je sam znajdzie.
+- **`build`** — w projektach kompilowanych: wspólny cache, które pakiety testować, czego nie uruchamiać.
 - **Sprawdzenie** (`checks:`) — komendy z `CLAUDE.md`: typecheck, lint, testy, build. Testerowi: adres
   aplikacji, konta testowe z rolami, katalog na zrzuty (scratchpad), czy nagrać GIF.
 - **`report`** — agenci mają własny kontrakt raportu; nie każ im pisać więcej.
@@ -134,6 +160,10 @@ musi kończyć się tą linią; jeśli nie kończy, przegląd przed merge'em do 
    z `.claude/sztab-koszty.json` (panel sumuje tam agentów per zadanie): `Agenci: 14 · 38 min · ≈$1.20
    (cennik API)`. Koszt to szacunek pracy subagentów, bez Twojej własnej rozmowy.
 6. Właściciel dostaje 2–4 zdania: co zrobione, co wymaga jego decyzji. Bez surowych raportów agentów.
+   **Lekcje:** zbierz z raportów pola `brief-gaps:`, `lesson:` i `instruction-following:`. Co powtarza
+   się albo zmienia sposób pisania zleceń, dopisz do pamięci projektu i powiedz właścicielowi w jednej
+   linii (np. „Sonnet pominął klawisz Delete — w zleceniach wypisuję teraz wszystkie klawisze”).
+   Zmiany w `CLAUDE.md` albo w tym pluginie proponujesz, nie robisz sam.
 7. Rzeczy spoza zadania, które agenci zgłosili — nowe zadania w trackerze, nie robione od razu.
 8. Posprzątaj: worktree agentów usuń (`git worktree remove`) tylko scalone i bez niezacommitowanych zmian,
    po sprawdzeniu (`git -C <worktree> status`, `git branch --merged`); scalone gałęzie skasuj lokalnie.
