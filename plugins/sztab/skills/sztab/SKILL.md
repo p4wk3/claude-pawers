@@ -107,15 +107,15 @@ scope:
 - src/app/visits/page.tsx - pass the id; empty state text `Brak wizyt`
 steps:
 1. src/lib/visits.ts:42 - add param `locationId: string` to `listVisits`; check: tsc passes
-2. add `.eq("location_id", locationId)` before `.order(...)`; check: test `visits` passes
+2. src/lib/visits.ts:44 - add `.eq("location_id", locationId)` before `.order(...)`; check: test `visits` passes
 3. src/app/visits/page.tsx:18 - pass `currentLocationId`; check: tsc passes
 stop-if: `listVisits` has other callers than page.tsx; any step needs a file outside scope
 done-when: list shows only visits of the current location; typecheck passes
-no: no push; do not touch src/lib/labels.ts (another agent edits it); max 2 files, one commit
+no: commit on branch mng-140, no push; do not touch src/lib/labels.ts (another agent edits it); max 2 files
 rules: RLS is organization-scoped; `"use server"` files export only async functions
-build: shared cache path, which packages to test, what never to run (full build, release, e2e)
+build: reuse main repo `node_modules` and `.next/cache`; test only package fryzapp; never full build or e2e
 checks: `npx tsc --noEmit`, `pnpm --filter @mnghub/fryzapp test visits`
-report: sztab-speak; report before commit
+report: sztab-speak
 ```
 
 - **`task`** — id zadania i jedno zdanie po co.
