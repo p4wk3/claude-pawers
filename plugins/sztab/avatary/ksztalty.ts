@@ -119,7 +119,7 @@ export const KSZTALTY: Record<string, Shape> = {
     elements: [
       ...body('#kitel'),
       el('Wlosy', [5, 16, 5], [11, 17.5, 11], '#wlosy'),
-      el('Okulary', [5.8, 13, 11], [10.2, 14.6, 11.3], '#okulary'),
+      el('Okulary', [5.8, 14.5, 11], [10.2, 15, 11.3], '#okulary'),
       el('Klocek', [12, 6, 8.5], [15, 9, 11.5], '#klocek'),
       el('KlocekBok', [12.5, 9, 9], [14.5, 10, 11], '#bok'),
     ],
