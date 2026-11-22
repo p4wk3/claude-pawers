@@ -8,7 +8,7 @@
     {
       "name": "sztab",
       "source": "./plugins/sztab",
-      "description": "Orkiestrator z 5 subagentami, panel /sztab (agenci, repo, koszty), bramka przeglądu przed main, pasek MVP, /raport i /podsumowanie"
+      "description": "Orkiestrator z 7 subagentami (w tym animator i montażysta do filmów), panel /sztab (agenci, repo, koszty), bramka przeglądu przed main, pasek MVP, /raport i /podsumowanie"
     },
     {
       "name": "mcp-per-workspace",

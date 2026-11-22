@@ -1,6 +1,6 @@
 ---
 name: sztab
-description: Sposób pracy orkiestratora — główna sesja rozdziela robotę między subagentów (zwiadowca, badacz, rzemieślnik, tester, recenzent) pod jednym zadaniem z trackera, a sama rozmawia z właścicielem, sprawdza wyniki, testuje i domyka zmianę. Użyj na początku każdej pracy, która wymaga czytania więcej niż kilku plików, zmian w kodzie, researchu albo przeglądu — czyli prawie zawsze, poza pytaniem, na które odpowiadasz od ręki.
+description: Sposób pracy orkiestratora — główna sesja rozdziela robotę między subagentów (zwiadowca, badacz, rzemieślnik, tester, recenzent, przy filmach animator i montażysta) pod jednym zadaniem z trackera, a sama rozmawia z właścicielem, sprawdza wyniki, testuje i domyka zmianę. Użyj na początku każdej pracy, która wymaga czytania więcej niż kilku plików, zmian w kodzie, researchu albo przeglądu — czyli prawie zawsze, poza pytaniem, na które odpowiadasz od ręki.
 ---
 
 # Sztab — praca z agentami
@@ -52,6 +52,8 @@ Agenci z tej wtyczki mają przedrostek `sztab:` (`subagent_type: "sztab:zwiadowc
 | `sztab:rzemieslnik` | sonnet | zmiana według gotowej listy albo planu | decyzji projektowych |
 | `sztab:tester` | sonnet | sprawdzenie na żywo w przeglądarce: kryteria „gotowe, gdy…”, role, widoki mobilne, błędy w konsoli, zapis danych | edycji kodu |
 | `sztab:recenzent` | sonnet | przegląd diffu albo planu przed PR-em i merge'em | pisania poprawek |
+| `sztab:animator` | sonnet | sceny filmu animowanego: postacie, pozy, kamera, światło, napisy; klatki i arkusz po każdej zmianie (sekcja 4a) | dźwięku, cięć, finalnego eksportu |
+| `sztab:montazysta` | sonnet | montaż: transkrypcja ze znacznikami słów, sceny pod nagrany głos, tła dźwiękowe, napisy, eksport poziomy, pionowy i lekki na telefon (sekcja 4a) | budowania scen |
 
 - **Rzemieślnik domyślnie na sonnecie**, ze zleceniem krok po kroku (sekcja 4: `steps:`, `stop-if:`).
   `model: "opus"` tylko wtedy, gdy w zleceniu zostaje otwarta decyzja projektowa, której nie da się
@@ -147,6 +149,63 @@ Ostatnia linia raportu recenzenta to zawsze `verdict: ok|changes|reject sha: <sh
 i bramka merge'a: merge tylko przy `verdict: ok` dla tego samego sha, które idzie do merge'a. Po
 poprawkach (nowy commit) — nowy przegląd. Jeśli projekt ma własnego recenzenta, jego odpowiedź też
 musi kończyć się tą linią; jeśli nie kończy, przegląd przed merge'em do `main` zleć `sztab:recenzent`.
+
+## 4a. Filmy animowane
+
+Przy filmach (animowane krótkie formy, parodie, Shorts) ręczną robotę robią dwaj tani i szybcy agenci
+na Sonnecie. Ty nie animujesz i nie montujesz: piszesz zlecenia, oceniasz klatki i gotowy plik,
+rozmawiasz z właścicielem.
+
+- **`sztab:animator`** — sceny: postacie, pozy, rekwizyty, kamera, światło, napisy na ekranie, wersja
+  pionowa (ta sama scena, szersza kamera). Po każdej zmianie renderuje klatki i arkusz, sam je ogląda.
+  Nie robi finalnego eksportu, chyba że zlecenie każe.
+- **`sztab:montazysta`** — dźwięk i składanie: transkrypcja ze znacznikami słów, granice scen pod
+  nagrany głos, tła i muzyka, czasy napisów, eksport 1920×1080 i 1080×1920, lekkie wersje na telefon
+  (<30 MB). Sprawdza każdy plik wyjściowy (`ffprobe`, pierwsza i ostatnia klatka).
+- Kolejność: montażysta najpierw ustala czasy z głosu (JSON czasów), potem animator buduje sceny pod te
+  czasy, na końcu montażysta eksportuje. Poprawki scen — animator; poprawki rytmu — montażysta.
+- Narzędzia projektu (studio, skill typu `animatik`) podaj w zleceniu ścieżką; agenci czytają je
+  pierwsze.
+
+**Zasady, które wpisujesz do każdego zlecenia filmowego** (`rules:`):
+1. Nagrany głos właściciela jest nietykalny: bez cięcia, bez wstawionych pauz. Sceny dopasowują się
+   do głosu, cięcia wypadają na początkach zdań według znaczników słów.
+2. Wszystkie czasy w jednym JSON-ie obok filmu (np. `ciecie.json`: zakresy scen, napisy `od`/`do`,
+   `momenty`), czytanym przez kod scen. Zmiana rytmu = zmiana danych, nie kodu.
+3. Tylko akcje ze scenariusza (żadnego „kaszlu dla życia”). Gest trzymany (ręka na głowie) zamrożony
+   na kluczowej klatce do końca sceny. Bez przejść między animacjami — scena startuje od razu w docelowej
+   pozie, twarde cięcie.
+4. Prosto i czytelnie zamiast ambitnie i sztucznie. Gdy efekt wygląda tanio — usuń go.
+5. Napisy: duże, pogrubione, gruby czarny obrys (`-webkit-text-stroke` + `paint-order: stroke fill`),
+   bez pasa ani gradientu pod tekstem. Pion ok. 96 px na ok. 2/3 wysokości (nad UI YouTube), poziom
+   ok. 68 px. Plansza końcowa z linkiem widoczna w całości do ostatniej klatki.
+6. Wersja pionowa: te same sceny, kamera dalej albo szerszy FOV, tekst ułożony na nowo; osobny folder
+   filmu importujący poziomy.
+7. Zmiany we wspólnym silniku tylko dodające i opcjonalne — inne filmy bez zmian.
+8. Budżet: 2–3 iteracje renderu na rundę; potem raport z wadami zamiast kręcenia się w kółko.
+9. Prawo: bez odtwarzania postaci i scenografii z parodiowanego serialu (własne postacie z gry).
+   Klonowanie głosu prawdziwej osoby tylko za jej zgodą — zaproponuj głos z biblioteki.
+
+**Twój przegląd po każdej rundzie** (zanim cokolwiek pokażesz właścicielowi):
+- Raport ma: zmienione pliki, sprawdzenia z kodami wyjścia, opis każdej sceny, uczciwe wady, liczbę
+  iteracji. Brakuje — odeślij.
+- Arkusz klatek nowszy niż ostatnia zmiana. Agenci czasem oddają stary arkusz albo piszą „nie odtwarzałem
+  mp4” — wtedy nie wierz raportowi.
+- **Gotowy mp4 sprawdzasz sam:** `ffprobe` (długość = długość głosu, rozdzielczość), `ffmpeg` wyciąga
+  pierwszą klatkę, ostatnią i po jednej z każdej sceny; oglądasz je.
+- Lista typowych błędów: postać lewituje albo wchodzi w ziemię; obracana część kręci się wokół rogu,
+  a nie środka; noc za ciemna; rekwizyt zasłania bohatera; zbędny zoom; skok pozy; napis ucięty, na
+  twarzy albo pod UI; plansza końcowa znika przed końcem; głos ucięty albo z pauzą.
+- Windows: faster-whisper — dźwięk dekoduj ffmpegiem do f32le 16 kHz mono i podawaj tablicę numpy
+  (`av.open(... metadata_errors)` rzuca TypeError); `PYTHONIOENCODING=utf8` przy polskim tekście;
+  serwer studia musi działać (sprawdź port przed renderem).
+
+**Rozmowa z właścicielem przy filmie:**
+- Tekst scenariusza zostaje autorski, dopóki właściciel nie poprosi o zmianę. Proponując zmiany,
+  pokazuj **cały tekst** z poprawkami pogrubionymi — sam opis wariantów nie wystarcza.
+- Pytaj tylko o decyzje, z przykładem tego, co zobaczy widz („w scenie 3 kowal trzyma się za głowę do
+  końca zdania — zostawić?”).
+- Wersje na telefon (<30 MB) wysyłaj przez `SendUserFile`.
 
 ## 5. Domknięcie
 

@@ -103,6 +103,29 @@ export const KSZTALTY: Record<string, Shape> = {
       el('Ptaszek', [12.5, 7.5, 9.8], [13.5, 8.5, 10], '#ptaszek'),
     ],
   },
+  // Beret, fioletowa bluza i klaps filmowy: ustawia sceny.
+  animator: {
+    textures: { ...BASE, bluza: '#6a4c93', beret: '#c0392b', klaps: '#2b2b2b', pasy: '#f4f1e8' },
+    elements: [
+      ...body('#bluza'),
+      el('Beret', [4.5, 16.5, 4.5], [11.5, 18, 11.5], '#beret'),
+      el('Klaps', [11.5, 6, 9], [15, 9, 9.6], '#klaps'),
+      el('KlapsGora', [11.5, 9.2, 9], [15, 10.2, 9.6], '#pasy'),
+    ],
+  },
+  // Ciemnozielona bluza, słuchawki i taśma: tnie i składa dźwięk z obrazem.
+  montazysta: {
+    textures: { ...BASE, bluza: '#2e5e4e', wlosy: '#3a2b20', sluchawki: '#1f1f22', szpula: '#b8b8b8', tasma: '#5a3d2b' },
+    elements: [
+      ...body('#bluza'),
+      el('Wlosy', [5, 16, 5], [11, 17.5, 11], '#wlosy'),
+      el('Palak', [4.5, 17.5, 7.5], [11.5, 18.2, 8.5], '#sluchawki'),
+      el('SluchawkaL', [4.2, 13, 6.8], [5, 15.5, 9.2], '#sluchawki'),
+      el('SluchawkaP', [11, 13, 6.8], [11.8, 15.5, 9.2], '#sluchawki'),
+      el('Szpula', [12, 5, 8], [15, 8, 9], '#szpula'),
+      el('Tasma', [12.5, 8, 8.2], [14.5, 10.5, 8.8], '#tasma'),
+    ],
+  },
   // Zwykły kolonista: każdy inny agent.
   kolonista: {
     textures: { ...BASE, tunika: '#8a8f98', wlosy: '#3a2b20' },
@@ -121,6 +144,8 @@ export const POSTACIE: Record<string, { shape: string; label: string }> = {
   recenzent: { shape: 'recenzent', label: 'Recenzent' },
   zwiadowca: { shape: 'zwiadowca', label: 'Zwiadowca' },
   tester: { shape: 'tester', label: 'Tester' },
+  animator: { shape: 'animator', label: 'Animator' },
+  montazysta: { shape: 'montazysta', label: 'Montażysta' },
   Explore: { shape: 'zwiadowca', label: 'Zwiadowca (Explore)' },
   'caveman:cavecrew-investigator': { shape: 'zwiadowca', label: 'Zwiadowca (cavecrew)' },
   'caveman:cavecrew-builder': { shape: 'rzemieslnik', label: 'Rzemieślnik (cavecrew)' },

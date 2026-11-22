@@ -1,7 +1,7 @@
 {
   "name": "sztab",
-  "version": "0.7.0",
-  "description": "Orkiestrator z 5 subagentami (zwiadowca, badacz, rzemieślnik, recenzent, tester), panel /sztab z repo i kosztami, bramka przeglądu, pasek MVP, /raport, /podsumowanie, /pawers-setup",
+  "version": "0.8.0",
+  "description": "Orkiestrator z 7 subagentami (zwiadowca, badacz, rzemieślnik, recenzent, tester, animator, montażysta), panel /sztab z repo i kosztami, bramka przeglądu, pasek MVP, /raport, /podsumowanie, /pawers-setup",
   "author": {
     "name": "p4wk3",
     "url": "https://github.com/p4wk3"
