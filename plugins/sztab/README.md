@@ -158,6 +158,9 @@ claude plugin test .
 
 ## Zmiany
 
+- **0.9.1** — sekcja 6 skilla: podsesje i sprinty (gałąź sprintu, meldunki, scala sesja główna, numery
+  przy scalaniu); lekcje kompilacji (testy po jednym, `touch`, bez formatowania całego repo); merge
+  pełnym sha; agent projektu o tej samej nazwie wygrywa; tester nie dla programów okienkowych.
 - **0.9.0** — agent `sztab:modelarz`; modelarz, animator i montażysta pracują tylko istniejącymi
   narzędziami projektu — czego brakuje, nie tworzą ani nie szukają, tylko zgłaszają `BLOCKED`.
 - **0.8.0** — agenci `sztab:animator` i `sztab:montazysta` (Sonnet) z awatarami w panelu; w skillu sekcja
