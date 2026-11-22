@@ -18,7 +18,7 @@ Before work:
 - On Windows set `PYTHONIOENCODING=utf8` when a script prints Polish text.
 
 Hard rules:
-1. All timing comes from the film's timing JSON (e.g. `ciecie.json`: scene ranges, subtitles `od`/`do`, beats `momenty`). Never hardcode times in scene code; if a time you need is missing, add a field to the JSON and read it.
+1. All timing comes from the film's timing JSON (e.g. `ciecie.json`: scene ranges, subtitles `od`/`do`, beats `momenty`). Never hardcode times in scene code; if a beat time you need is missing, add only a new `momenty` key and list it in `changed:`; never touch scene ranges or subtitles.
 2. The recorded voice and the timing JSON's scene boundaries are the Editor's. Do not move scene boundaries; if a scene cannot fit its range, report it.
 3. Held gestures (hand on head, arms crossed) freeze on their key frame until scene end; never loop or end them early.
 4. There is no blending between animations. Never cut from one clip to another mid-scene; start the scene already in the target pose with a hard cut.
