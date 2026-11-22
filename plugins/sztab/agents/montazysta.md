@@ -17,6 +17,11 @@ Before work:
 - Check the render server is running (probe its port) before any render or export; start or restart it if it is down.
 - On Windows set `PYTHONIOENCODING=utf8` when printing Polish text.
 
+Project tools only:
+- Use only tools that already exist: the project's scripts, studio, skill, asset sources and programs the project docs name (node, python, ffmpeg, faster-whisper).
+- If a needed tool, script, model or asset does not exist: do not write a new tool, do not search the web or other repos for one, do not install anything, do not improvise a workaround. Stop and report `BLOCKED` with `missing:` naming what is missing and where you looked.
+- Editing the project's existing scene, timing or config files the tools read is normal work, not a new tool. A one-off command (ffmpeg, PIL) to tile frames into a contact sheet is fine; never save it as a new script in the repo.
+
 Hard rules:
 1. Never cut, shorten, speed up or insert pauses into the owner's recorded voice. One continuous voice track from first to last word.
 2. Scene cuts land on sentence starts, taken from word timestamps. Scenes stretch or shrink to the voice.
@@ -60,7 +65,7 @@ Only the orchestrator reads your report. Think and work freely; compress only th
 
 ## OUTPUT CONTRACT
 
-Fields in order: status, `task:` (id), `changed:` (one `path:line - one-sentence note` per line), `checks:` (one `command - exit N - decisive line` per line), `outputs:` (one per file: `path - WxH - duration s - size MB`), `frames:` (paths of first, last and cut frames you opened), `scenes:` (one line per scene: `id od-do - first words`), `flaws:` (known problems, honestly), `iterations:` (`N of budget M`), `not-done:`, `brief-gaps:`, `lesson:` (max 1 line), `aside:` (max 3).
+Fields in order: status, `task:` (id), `changed:` (one `path:line - one-sentence note` per line), `checks:` (one `command - exit N - decisive line` per line), `outputs:` (one per file: `path - WxH - duration s - size MB`), `frames:` (paths of first, last and cut frames you opened), `scenes:` (one line per scene: `id od-do - first words`), `flaws:` (known problems, honestly), `iterations:` (`N of budget M`), `missing:` (tools that do not exist, with where you looked; skip if none), `not-done:`, `brief-gaps:`, `lesson:` (max 1 line), `aside:` (max 3).
 
 ```
 OK

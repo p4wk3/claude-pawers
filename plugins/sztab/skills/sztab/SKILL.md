@@ -1,6 +1,6 @@
 ---
 name: sztab
-description: Sposób pracy orkiestratora — główna sesja rozdziela robotę między subagentów (zwiadowca, badacz, rzemieślnik, tester, recenzent, przy filmach animator i montażysta) pod jednym zadaniem z trackera, a sama rozmawia z właścicielem, sprawdza wyniki, testuje i domyka zmianę. Użyj na początku każdej pracy, która wymaga czytania więcej niż kilku plików, zmian w kodzie, researchu albo przeglądu — czyli prawie zawsze, poza pytaniem, na które odpowiadasz od ręki.
+description: Sposób pracy orkiestratora — główna sesja rozdziela robotę między subagentów (zwiadowca, badacz, rzemieślnik, tester, recenzent, przy filmach modelarz, animator i montażysta) pod jednym zadaniem z trackera, a sama rozmawia z właścicielem, sprawdza wyniki, testuje i domyka zmianę. Użyj na początku każdej pracy, która wymaga czytania więcej niż kilku plików, zmian w kodzie, researchu albo przeglądu — czyli prawie zawsze, poza pytaniem, na które odpowiadasz od ręki.
 ---
 
 # Sztab — praca z agentami
@@ -52,6 +52,7 @@ Agenci z tej wtyczki mają przedrostek `sztab:` (`subagent_type: "sztab:zwiadowc
 | `sztab:rzemieslnik` | sonnet | zmiana według gotowej listy albo planu | decyzji projektowych |
 | `sztab:tester` | sonnet | sprawdzenie na żywo w przeglądarce: kryteria „gotowe, gdy…”, role, widoki mobilne, błędy w konsoli, zapis danych | edycji kodu |
 | `sztab:recenzent` | sonnet | przegląd diffu albo planu przed PR-em i merge'em | pisania poprawek |
+| `sztab:modelarz` | sonnet | modele do filmu: postacie, rekwizyty, budowle, tekstury — tylko narzędziami projektu; widok testowy każdego modelu (sekcja 4a) | tworzenia narzędzi, szukania modeli poza projektem |
 | `sztab:animator` | sonnet | sceny filmu animowanego: postacie, pozy, kamera, światło, napisy; klatki i arkusz po każdej zmianie (sekcja 4a) | dźwięku, cięć, finalnego eksportu |
 | `sztab:montazysta` | sonnet | montaż: transkrypcja ze znacznikami słów, sceny pod nagrany głos, tła dźwiękowe, napisy, eksport poziomy, pionowy i lekki na telefon (sekcja 4a) | budowania scen |
 
@@ -152,20 +153,25 @@ musi kończyć się tą linią; jeśli nie kończy, przegląd przed merge'em do 
 
 ## 4a. Filmy animowane
 
-Przy filmach (animowane krótkie formy, parodie, Shorts) ręczną robotę robią dwaj tani i szybcy agenci
+Przy filmach (animowane krótkie formy, parodie, Shorts) ręczną robotę robią trzej tani i szybcy agenci
 na Sonnecie. Ty nie animujesz i nie montujesz: piszesz zlecenia, oceniasz klatki i gotowy plik,
 rozmawiasz z właścicielem.
 
+- **`sztab:modelarz`** — modele: postacie, rekwizyty, budowle, teren, tekstury, ze źródeł i skryptów
+  projektu (np. kształty i tekstury z plików gry). Każdy model ogląda w widoku testowym.
 - **`sztab:animator`** — sceny: postacie, pozy, rekwizyty, kamera, światło, napisy na ekranie, wersja
   pionowa (ta sama scena, szersza kamera). Po każdej zmianie renderuje klatki i arkusz, sam je ogląda.
   Nie robi finalnego eksportu, chyba że zlecenie każe.
 - **`sztab:montazysta`** — dźwięk i składanie: transkrypcja ze znacznikami słów, granice scen pod
   nagrany głos, tła i muzyka, czasy napisów, eksport 1920×1080 i 1080×1920, lekkie wersje na telefon
   (<30 MB). Sprawdza każdy plik wyjściowy (`ffprobe`, pierwsza i ostatnia klatka).
-- Kolejność: montażysta najpierw ustala czasy z głosu (JSON czasów), potem animator buduje sceny pod te
-  czasy, na końcu montażysta eksportuje. Poprawki scen — animator; poprawki rytmu — montażysta.
+- Kolejność: montażysta najpierw ustala czasy z głosu (JSON czasów), modelarz przygotowuje brakujące
+  modele, potem animator buduje sceny pod te czasy, na końcu montażysta eksportuje. Poprawki scen — animator; poprawki rytmu — montażysta.
 - Narzędzia projektu (studio, skill typu `animatik`) podaj w zleceniu ścieżką; agenci czytają je
-  pierwsze.
+  pierwsze. **Wszyscy trzej pracują tylko istniejącymi narzędziami projektu.** Czego brakuje (skryptu,
+  modelu, tekstury), tego nie tworzą, nie szukają w sieci ani w innych repo i nie obchodzą — zgłaszają
+  `BLOCKED` z polem `missing:`. Ty decydujesz z właścicielem, czy brakujące narzędzie ma powstać (osobne
+  zadanie dla rzemieślnika) albo czy scena obejdzie się bez tego.
 
 **Zasady, które wpisujesz do każdego zlecenia filmowego** (`rules:`):
 1. Nagrany głos właściciela jest nietykalny: bez cięcia, bez wstawionych pauz. Sceny dopasowują się

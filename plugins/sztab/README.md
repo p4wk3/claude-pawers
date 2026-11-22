@@ -1,13 +1,13 @@
 # Sztab
 
 Wtyczka do [Claude Code](https://claude.com/claude-code), która zamienia główną sesję w **orkiestratora**.
-Orkiestrator rozmawia z tobą i rozdziela robotę między siedmiu subagentów. Ich pracę widać na żywo
+Orkiestrator rozmawia z tobą i rozdziela robotę między ośmiu subagentów. Ich pracę widać na żywo
 w panelu.
 
 - **Skill `sztab`** — sposób pracy: zadanie z trackera, kolejność zwiadowca → badacz → rzemieślnik →
   tester → recenzent, jak pisać zlecenia, jak domykać zmianę.
 - **Agenci** — `sztab:zwiadowca` (haiku, namierzanie), `sztab:badacz` (research), `sztab:rzemieslnik`
-  (wykonanie zmiany), `sztab:tester` (sprawdzenie na żywo w przeglądarce), `sztab:recenzent` (przegląd), a do filmów animowanych `sztab:animator` (sceny, klatki
+  (wykonanie zmiany), `sztab:tester` (sprawdzenie na żywo w przeglądarce), `sztab:recenzent` (przegląd), a do filmów animowanych `sztab:modelarz` (modele narzędziami projektu), `sztab:animator` (sceny, klatki
   kontrolne) i `sztab:montazysta` (głos, napisy, eksport poziomy, pionowy i na telefon). Wszyscy poza
   zwiadowcą na Sonnecie — tanio i szybko; orkiestrator tylko zleca i ocenia.
   Zlecenia i raporty idą po angielsku, w zwięzłym stałym formacie („sztab-speak”) — czyta je tylko
@@ -158,6 +158,8 @@ claude plugin test .
 
 ## Zmiany
 
+- **0.9.0** — agent `sztab:modelarz`; modelarz, animator i montażysta pracują tylko istniejącymi
+  narzędziami projektu — czego brakuje, nie tworzą ani nie szukają, tylko zgłaszają `BLOCKED`.
 - **0.8.0** — agenci `sztab:animator` i `sztab:montazysta` (Sonnet) z awatarami w panelu; w skillu sekcja
   4a „Filmy animowane”: kto co robi, zasady do zleceń i lista kontrolna orkiestratora (lekcje z
   pierwszej parodii: nietykalny głos, czasy w JSON-ie, napisy, sprawdzanie gotowego mp4).

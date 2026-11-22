@@ -113,6 +113,17 @@ export const KSZTALTY: Record<string, Shape> = {
       el('KlapsGora', [11.5, 9.2, 9], [15, 10.2, 9.6], '#pasy'),
     ],
   },
+  // Granatowy kitel, okulary i klocek w dłoni: składa modele z gotowych części.
+  modelarz: {
+    textures: { ...BASE, kitel: '#34508a', wlosy: '#6b4a2e', okulary: '#1f1f22', klocek: '#d9a441', bok: '#b8862f' },
+    elements: [
+      ...body('#kitel'),
+      el('Wlosy', [5, 16, 5], [11, 17.5, 11], '#wlosy'),
+      el('Okulary', [5.8, 13, 11], [10.2, 14.6, 11.3], '#okulary'),
+      el('Klocek', [12, 6, 8.5], [15, 9, 11.5], '#klocek'),
+      el('KlocekBok', [12.5, 9, 9], [14.5, 10, 11], '#bok'),
+    ],
+  },
   // Ciemnozielona bluza, słuchawki i taśma: tnie i składa dźwięk z obrazem.
   montazysta: {
     textures: { ...BASE, bluza: '#2e5e4e', wlosy: '#3a2b20', sluchawki: '#1f1f22', szpula: '#b8b8b8', tasma: '#5a3d2b' },
@@ -146,6 +157,7 @@ export const POSTACIE: Record<string, { shape: string; label: string }> = {
   tester: { shape: 'tester', label: 'Tester' },
   animator: { shape: 'animator', label: 'Animator' },
   montazysta: { shape: 'montazysta', label: 'Montażysta' },
+  modelarz: { shape: 'modelarz', label: 'Modelarz' },
   Explore: { shape: 'zwiadowca', label: 'Zwiadowca (Explore)' },
   'caveman:cavecrew-investigator': { shape: 'zwiadowca', label: 'Zwiadowca (cavecrew)' },
   'caveman:cavecrew-builder': { shape: 'rzemieslnik', label: 'Rzemieślnik (cavecrew)' },
