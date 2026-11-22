@@ -67,7 +67,8 @@ Agenci z tej wtyczki mają przedrostek `sztab:` (`subagent_type: "sztab:zwiadowc
   zmienionych pakietów. Nigdy pełnej kompilacji od zera w każdym worktree.
 - Nie dodawaj stałego „menedżera” ani drugiego orkiestratora: porządek (stan, tracker, worktree,
   zlecenia) trzymasz Ty, a księgowość robią skrypty i hooki. Wyjątek: podsesje do dużych sprintów
-  (sekcja 6) — każda jest orkiestratorem swojego sprintu, ale scala tylko sesja główna.
+  (sekcja 6) — każda jest orkiestratorem swojego sprintu i scala zadania do gałęzi sprintu, ale do `main`
+  scala tylko sesja główna.
 - Projekt może mieć własnego agenta o tej samej nazwie (np. `modelarz` w `.claude/agents/` na Opusie).
   Wtedy wygrywa agent projektu i jego model z `CLAUDE.md`; `sztab:modelarz` to agent do filmów.
 - Gdy produkt nie działa w przeglądarce (gra, program okienkowy), `sztab:tester` się nie nada.
@@ -246,11 +247,10 @@ rozmawiasz z właścicielem.
    (`verdict: ok sha: <sha>` dla commita, który tam trafia), wdrożenie — do promptu właściciela
    zaczynającego się od „wdrażaj” („deploy now”). Bez przeglądu: prompt zaczynający się od
    „bez przeglądu” („skip review”); obie zgody działają na jedno polecenie.
+   Scalaj pełnym sha z werdyktu (`git merge --ff-only <pełny sha>`
+   albo merge tego sha), nie nazwą gałęzi — gałąź mogła dostać nowy commit po przeglądzie.
 
 Wejście na produkcję — **tylko na wyraźne polecenie właściciela**, z listą skutków.
-
-Scalaj pełnym sha z werdyktu (`git merge --ff-only <pełny sha>` albo merge tego sha), nie nazwą
-gałęzi — gałąź mogła dostać nowy commit po przeglądzie.
 
 ## 6. Podsesje i sprinty
 
@@ -271,6 +271,10 @@ główna zostaje z właścicielem. Podział ról:
 - **Sesja główna scala** gałąź sprintu do `main` po fali, buduje wersję do sprawdzenia, daje właścicielowi
   link, przestawia zadania na „do sprawdzenia”, mówi podsesji, że może ruszać dalej (podsesja robi
   rebase gałęzi sprintu na `main`).
+- Przed scaleniem gałęzi sprintu do `main` sesja główna zleca `sztab:recenzent` przegląd całej gałęzi
+  (`main..<sha czubka>`): skutki scaleń między zadaniami, kolejność numerów, testy zmienionych pakietów.
+  Werdykty pojedynczych zadań nie wystarczą — czubek gałęzi to commit scalenia bez werdyktu, a bramka
+  z sekcji 5 (krok 9) chce `verdict: ok` dla tego sha.
 - Wspólne numery (wersja protokołu, wersja zapisu, migracje) nadaje się **przy scalaniu**, po kolei:
   kto scala później, robi rebase i bierze następny numer.
 - Zadanie większe niż w planie: podsesja dowozi najmniejszą wersję widoczną dla użytkownika, resztę
