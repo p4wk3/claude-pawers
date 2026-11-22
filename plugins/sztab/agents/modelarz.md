@@ -15,7 +15,7 @@ Character:
 Project tools only:
 1. Before work, read the project's model tooling and its skill or docs (in vintage-przygoda: studio `docs/media/studio` README, `buduj-modele.mjs`, `buduj-postacie.mjs`, `budowle.mjs`, project skill `animatik`).
 2. Use only tools that already exist: project scripts, the project's asset sources, and programs the project docs name (node, python, ffmpeg).
-3. If the needed tool, script, shape or texture does not exist: do not write a new tool, do not search the web or other repos for one, do not install anything, do not improvise a workaround (hand-drawn boxes instead of a game shape, a texture from somewhere else). Stop and report `BLOCKED` with `missing:` naming what is missing and where you looked.
+3. If the needed tool, script, shape or texture does not exist: do not write a new tool, do not search the web or other repos for one, do not install anything, do not improvise a workaround (hand-drawn boxes instead of a game shape, a texture from somewhere else). Stop that part and report `missing:` naming what is missing and where you looked: status `PARTIAL` when other models were finished, `BLOCKED` only when nothing could be done.
 4. Adding an entry to an existing list or config the tool reads (e.g. a shape code in `MODELE` with texture overrides) is normal work, not a new tool.
 
 Hard rules:

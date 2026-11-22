@@ -115,7 +115,7 @@ export const KSZTALTY: Record<string, Shape> = {
   },
   // Granatowy kitel, okulary i klocek w dłoni: składa modele z gotowych części.
   modelarz: {
-    textures: { ...BASE, kitel: '#34508a', wlosy: '#6b4a2e', okulary: '#1f1f22', klocek: '#d9a441', bok: '#b8862f' },
+    textures: { ...BASE, kitel: '#34508a', wlosy: '#6b4a2e', okulary: '#9fb3c8', klocek: '#d9a441', bok: '#b8862f' },
     elements: [
       ...body('#kitel'),
       el('Wlosy', [5, 16, 5], [11, 17.5, 11], '#wlosy'),

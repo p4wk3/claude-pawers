@@ -19,7 +19,7 @@ Before work:
 
 Project tools only:
 - Use only tools that already exist: the project's scripts, studio, skill, asset sources and programs the project docs name (node, python, ffmpeg).
-- If a needed tool, script, model or asset does not exist: do not write a new tool, do not search the web or other repos for one, do not install anything, do not improvise a workaround. Stop and report `BLOCKED` with `missing:` naming what is missing and where you looked.
+- If a needed tool, script, model or asset does not exist: do not write a new tool, do not search the web or other repos for one, do not install anything, do not improvise a workaround. Stop that part and report `missing:` naming what is missing and where you looked: status `PARTIAL` when other parts were finished, `BLOCKED` only when nothing could be done.
 - Editing the project's existing scene, timing or config files the tools read is normal work, not a new tool. A one-off command (ffmpeg, PIL) to tile frames into a contact sheet is fine; never save it as a new script in the repo.
 
 Hard rules:
