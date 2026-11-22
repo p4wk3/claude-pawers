@@ -66,7 +66,13 @@ Agenci z tej wtyczki mają przedrostek `sztab:` (`subagent_type: "sztab:zwiadowc
   katalog kompilacji głównego repo (np. `export CARGO_TARGET_DIR=<repo>/target`), testy tylko
   zmienionych pakietów. Nigdy pełnej kompilacji od zera w każdym worktree.
 - Nie dodawaj stałego „menedżera” ani drugiego orkiestratora: porządek (stan, tracker, worktree,
-  zlecenia) trzymasz Ty, a księgowość robią skrypty i hooki.
+  zlecenia) trzymasz Ty, a księgowość robią skrypty i hooki. Wyjątek: podsesje do dużych sprintów
+  (sekcja 6) — każda jest orkiestratorem swojego sprintu, ale scala tylko sesja główna.
+- Projekt może mieć własnego agenta o tej samej nazwie (np. `modelarz` w `.claude/agents/` na Opusie).
+  Wtedy wygrywa agent projektu i jego model z `CLAUDE.md`; `sztab:modelarz` to agent do filmów.
+- Gdy produkt nie działa w przeglądarce (gra, program okienkowy), `sztab:tester` się nie nada.
+  Sprawdzenie na żywo robią narzędzia projektu (zrzuty, tryb bez okna, uruchamiacz scenariuszy)
+  wskazane w `CLAUDE.md`, a ostatecznie właściciel w zbudowanej wersji.
 
 ## 3. Kolejność
 
@@ -137,6 +143,10 @@ report: sztab-speak
 - **Zasady projektu, które mogą ugryźć** (`rules:`) — obowiązkowo; wypisz z `CLAUDE.md` te, które go
   dotyczą. Nie zakładaj, że agent je sam znajdzie.
 - **`build`** — w projektach kompilowanych: wspólny cache, które pakiety testować, czego nie uruchamiać.
+  Sprawdzone lekcje: ciężkie testy po jednym naraz (kilku agentów naraz zatyka komputer); przy
+  ponownym przeglądzie testy tylko zmienionych pakietów; przy wspólnym katalogu kompilacji `touch`
+  zmienionego pliku przed testem (inaczej narzędzie bierze nieaktualny wynik); nigdy formatowanie
+  całego repo (`cargo fmt`, `prettier .`) — tylko zmienione pliki.
 - **Sprawdzenie** (`checks:`) — komendy z `CLAUDE.md`: typecheck, lint, testy, build. Testerowi: adres
   aplikacji, konta testowe z rolami, katalog na zrzuty (scratchpad), czy nagrać GIF.
 - **`report`** — agenci mają własny kontrakt raportu; nie każ im pisać więcej.
@@ -238,3 +248,32 @@ rozmawiasz z właścicielem.
    „bez przeglądu” („skip review”); obie zgody działają na jedno polecenie.
 
 Wejście na produkcję — **tylko na wyraźne polecenie właściciela**, z listą skutków.
+
+Scalaj pełnym sha z werdyktu (`git merge --ff-only <pełny sha>` albo merge tego sha), nie nazwą
+gałęzi — gałąź mogła dostać nowy commit po przeglądzie.
+
+## 6. Podsesje i sprinty
+
+Duży sprint (kilka–kilkanaście zadań) prowadzi osobna **podsesja** (na Opusie, ze Sztabem), a sesja
+główna zostaje z właścicielem. Podział ról:
+
+- **Sesja główna** planuje sprint: mapa kodu od badacza (`plik:linia` dla każdego zadania), plik planu
+  w repo (fale, tory równoległe, kolizje plików, co zobaczy użytkownik, „gotowe, gdy…”, założenia
+  do potwierdzenia, pliki dokumentacji do poprawy). Zadania zależne idą po kolei w jednym torze;
+  tory nie dzielą plików albo scalają się po kolei. Plan commituje przed startem podsesji.
+- **Podsesja** dostaje krótkie zlecenie z odnośnikiem do pliku planu. Pracuje na **gałęzi sprintu**:
+  każde zadanie w swojej gałęzi i worktree, scalenie do gałęzi sprintu po `verdict: ok sha:`.
+  Nie scala do `main` i nie wypycha. Założenia z planu stosuje bez czekania na właściciela i wypisuje
+  je w raporcie.
+- **Meldunki** idą do sesji głównej (SendMessage z jej id): po każdej fali gałąź, pełny sha, werdykty,
+  co sprawdzić (prostym językiem dla właściciela), przyjęte założenia; od razu — kolizje plików
+  i blokady. Podsesje nie umawiają się między sobą; kolizje rozstrzyga sesja główna.
+- **Sesja główna scala** gałąź sprintu do `main` po fali, buduje wersję do sprawdzenia, daje właścicielowi
+  link, przestawia zadania na „do sprawdzenia”, mówi podsesji, że może ruszać dalej (podsesja robi
+  rebase gałęzi sprintu na `main`).
+- Wspólne numery (wersja protokołu, wersja zapisu, migracje) nadaje się **przy scalaniu**, po kolei:
+  kto scala później, robi rebase i bierze następny numer.
+- Zadanie większe niż w planie: podsesja dowozi najmniejszą wersję widoczną dla użytkownika, resztę
+  zgłasza jako nowe zadanie.
+- Zmiana widoczna dla użytkownika poprawia w tym samym commicie dokumentację, którą plan wymienia przy
+  zadaniu. Blokada po stronie interfejsu (nieaktywny przycisk) ma też odmowę po stronie logiki/serwera.
