@@ -111,8 +111,25 @@ async function refreshRepo($: EngineInterface): Promise<void> {
 
 function verdictFor(sha: string, all: Record<string, Werdykt>): Werdykt | undefined {
   const s = sha.toLowerCase()
-  const key = Object.keys(all).find(k => s.startsWith(k.toLowerCase()) || k.toLowerCase().startsWith(s))
-  return key ? all[key] : undefined
+  // Kilka wpisów pasuje (skrót i pełny sha, różne klucze): wygrywa najsurowszy werdykt.
+  const hits = Object.keys(all)
+    .filter(k => s.startsWith(k.toLowerCase()) || k.toLowerCase().startsWith(s))
+    .map(k => all[k])
+  return hits.find(v => v === 'reject') ?? hits.find(v => v === 'changes') ?? hits.find(v => v === 'ok')
+}
+
+// Sklejenie werdyktów z kilku źródeł: ten sam sha z różnymi werdyktami = wygrywa każdy inny niż ok.
+function mergeVerdicts(...sources: Record<string, Werdykt>[]): Record<string, Werdykt> {
+  const rank = { ok: 0, changes: 1, reject: 2 } as const
+  const out: Record<string, Werdykt> = {}
+  for (const src of sources) {
+    for (const [sha, v] of Object.entries(src)) {
+      const k = sha.toLowerCase()
+      const prev = out[k]
+      if (prev === undefined || rank[v] > rank[prev]) out[k] = v
+    }
+  }
+  return out
 }
 
 // Werdykty trzyma magazyn wtyczki (poza drzewem roboczym, więc nie da się ich podrzucić plikiem
@@ -129,7 +146,9 @@ async function przegladyKey($: EngineInterface): Promise<string> {
 
 // Werdykt dotyczy sha, więc ten sam wpis trafia też pod klucz wspólny: bramka sprawdza commit
 // z repozytorium docelowego (`git -C inne-repo push`), a recenzję mogła zrobić sesja w innym repo.
+// Tylko pełne sha (40 znaków): skrót pasowałby do commitów z innych repozytoriów.
 const PRZEGLADY_ALL = 'przeglady:*'
+const FULL_SHA = /^[0-9a-f]{40}$/i
 
 async function loadKey($: EngineInterface, key: string): Promise<Record<string, Werdykt>> {
   try {
@@ -147,7 +166,8 @@ async function loadKey($: EngineInterface, key: string): Promise<Record<string, 
 
 async function loadPrzeglady($: EngineInterface): Promise<Record<string, Werdykt>> {
   try {
-    return { ...(await loadKey($, PRZEGLADY_ALL)), ...(await loadKey($, await przegladyKey($))) }
+    const shared = Object.fromEntries(Object.entries(await loadKey($, PRZEGLADY_ALL)).filter(([sha]) => FULL_SHA.test(sha)))
+    return mergeVerdicts(shared, await loadKey($, await przegladyKey($)))
   } catch {
     return {}
   }
@@ -158,7 +178,7 @@ async function savePrzeglad($: EngineInterface, sha: string, verdict: Werdykt): 
   try {
     const key = await przegladyKey($)
     await $.store.set(key, { ...(await loadKey($, key)), [sha]: verdict })
-    await $.store.set(PRZEGLADY_ALL, { ...(await loadKey($, PRZEGLADY_ALL)), [sha]: verdict })
+    if (FULL_SHA.test(sha)) await $.store.set(PRZEGLADY_ALL, { ...(await loadKey($, PRZEGLADY_ALL)), [sha]: verdict })
   } catch {
     // brak zapisu: werdykt zostaje w stanie sesji
   }
@@ -515,11 +535,33 @@ function analyze(cmd: string, ps: boolean, depth = 0): Analysis {
   let cwd: string | undefined
   let seen = false
   // Zmienne przypisane wcześniej w tym samym poleceniu (`I=/repo; git -C $I push`, `$I = '/repo'`).
+  // Rozwijamy tylko nazwy przypisane dokładnie raz, na najwyższym poziomie, przed `|`, `&`, `(`, `)`:
+  // inaczej nie wiadomo, która wartość obowiązuje, i `$X` zostaje nierozwinięte (= odmowa).
+  // W PowerShellu nazwy zmiennych nie rozróżniają wielkości liter.
+  const nameKey = (n: string) => (ps ? n.toLowerCase() : n)
+  const assignOf = (words: string[]): { name: string; value: string }[] | undefined => {
+    const list = (words[0] === 'export' ? words.slice(1) : words).map(w => /^([A-Za-z_]\w*)=([\s\S]*)$/.exec(w))
+    if (list.length > 0 && list.every(m => m !== null)) return list.map(m => ({ name: m?.[1] ?? '', value: m?.[2] ?? '' }))
+    const m = /^\$(\w+)$/.exec(words[0] ?? '')
+    return ps && m && words[1] === '=' && words.length === 3 ? [{ name: m[1] ?? '', value: words[2] ?? '' }] : undefined
+  }
+  const counts = new Map<string, number>()
+  const unsafe = new Set<string>()
+  // Nawiasy i backticki gubią się przy podziale na kawałki (pusty kawałek znika): z nimi żadna zmienna nie jest pewna.
+  let deep = /[()`]/.test(cmd)
+  for (const s of segs) {
+    for (const x of assignOf(s.words) ?? []) {
+      const key = nameKey(x.name)
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+      if (deep || ['|', '&', '(', ')', '`'].includes(s.sep)) unsafe.add(key)
+    }
+    if (['&&', '||', '|', '&', '(', ')', '`'].includes(s.sep)) deep = true
+  }
   const vars: Record<string, string> = {}
   const expand = (w: string) =>
     w.replace(/\$(?:\{(\w+)\}|(\w+))/g, (m, a?: string, b?: string) => {
-      const name = a ?? b ?? ''
-      return Object.hasOwn(vars, name) ? (vars[name] ?? m) : m
+      const key = nameKey(a ?? b ?? '')
+      return Object.hasOwn(vars, key) ? (vars[key] ?? m) : m
     })
   for (const [k, s] of segs.entries()) {
     // `echo '<polecenie>' | sh`: wypisany tekst wykona następny kawałek.
@@ -529,14 +571,12 @@ function analyze(cmd: string, ps: boolean, depth = 0): Analysis {
       const text = echoed(s.words)
       if (text !== undefined) merge(analyzeFed({ target, text }, depth), cwd)
     }
-    const assigns = (s.words[0] === 'export' ? s.words.slice(1) : s.words).map(w => /^([A-Za-z_]\w*)=([\s\S]*)$/.exec(w))
-    if (assigns.length > 0 && assigns.every(m => m !== null)) {
-      for (const m of assigns) if (m) vars[m[1] ?? ''] = expand(m[2] ?? '')
-      continue
-    }
-    const psAssign = /^\$(\w+)$/.exec(s.words[0] ?? '')
-    if (ps && psAssign && s.words[1] === '=' && s.words.length === 3) {
-      vars[psAssign[1] ?? ''] = expand(s.words[2] ?? '')
+    const assigned = assignOf(s.words)
+    if (assigned) {
+      for (const x of assigned) {
+        const key = nameKey(x.name)
+        if (counts.get(key) === 1 && !unsafe.has(key)) vars[key] = expand(x.value)
+      }
       continue
     }
     const words = s.words.map(expand)
@@ -660,7 +700,7 @@ async function judge($: EngineInterface, cmd: string, ps: boolean, agentId?: str
   let reviewDenied = unparsed ? DENY_UNPARSED(cmd) : undefined
   if (!reviewDenied && gates.length > 0) {
     // Werdykty z magazynu (też z innych sesji) razem ze stanem sesji.
-    const all = { ...(await read($, przeglady)), ...(await loadPrzeglady($)) }
+    const all = mergeVerdicts(await read($, przeglady), await loadPrzeglady($))
     // Gałąź nieznana (błąd, odłączony HEAD) = może być main.
     const branches = new Map<string, string>()
     const branchOf = async (cwd?: string) => {
@@ -683,9 +723,12 @@ async function judge($: EngineInterface, cmd: string, ps: boolean, agentId?: str
       } else {
         for (const t of g.targets) {
           if (t.dst !== null && !MAIN.has(t.dst)) continue
-          // Bieżąca gałąź, a katalogu z `cd` nie da się ustalić (nieznana zmienna): katalog agenta/sesji.
-          // Jawny cel main zostaje w katalogu z `cd`, więc nieustalony = odmowa.
-          const dir = t.dst === null && g.cwd !== undefined && UNRESOLVED.test(g.cwd) ? base : g.cwd
+          // Katalogu z `cd`/`-C` nie da się ustalić (nieznana zmienna): nie wiadomo, które repo ani jaka gałąź = odmowa.
+          const dir = g.cwd
+          if (dir !== undefined && UNRESOLVED.test(dir)) {
+            reviewDenied = check(t.src ?? 'all/deleted refs', undefined, dir)
+            break
+          }
           if (t.dst === null) {
             const b = await branchOf(dir)
             if (b !== '' && !MAIN.has(b)) continue

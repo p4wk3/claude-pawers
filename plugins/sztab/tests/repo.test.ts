@@ -345,13 +345,14 @@ test('cd i git -C z katalogiem domowym: ~, $HOME, ${HOME}, $env:USERPROFILE, %US
   expect(String(main.deny ?? main.text)).toContain(`verdict: ok sha: ${FEAT}`)
 })
 
-test('katalog z cd nie do ustalenia: gałąź z katalogu sesji, jawny main dalej odmowa', async ($, on) => {
+test('katalog z cd nie do ustalenia: odmowa dla push na main i bez refspecu', async ($, on) => {
   // Katalog sesji na gałęzi feature, nieznany katalog nie odpowiada.
   await started($, on, (argv, init) => {
     if (argv.join(' ') === 'git branch --show-current') return init?.cwd === undefined ? { exitCode: 0, stdout: 'feature\n' } : { exitCode: 128, stdout: '' }
     return init?.cwd === undefined ? git(argv, init) : { exitCode: 128, stdout: '' }
   })
-  expect(await gated($, 'cd $REPO && git push')).toBe(false)
+  // Bez refspecu też: nie wiadomo, które repo, więc odmowa (jawny cel inny niż main przechodzi).
+  expect(await gated($, 'cd $REPO && git push')).toBe(true)
   expect(await gated($, 'cd $REPO && git push origin feature/x')).toBe(false)
   const main = await $.tool.call({ tool: 'Bash', command: 'cd $REPO && git push origin HEAD:main' } as never)
   expect(String(main.deny ?? main.text)).toContain('could not be resolved')
@@ -487,4 +488,44 @@ test('bramka: repozytorium docelowe nie do ustalenia = odmowa z nazwą próbowan
   expect(String(unset.deny ?? unset.text)).toContain('could not be resolved in repository $UNSET')
   const dyn = await $.tool.call({ tool: 'Bash', command: 'I=$(pwd); git -C $I push origin main' } as never)
   expect(String(dyn.deny ?? dyn.text)).toContain('could not be resolved')
+})
+
+test('bramka: zmienne tylko pewne; przypisane warunkowo, wielokrotnie, w podpowłoce albo bez rozróżnienia wielkości liter = odmowa', async ($, on) => {
+  await started($, on, infraRun, { 'przeglady:*': { [INFRA]: 'ok' } })
+  // Kontrola: pewne przypisanie przechodzi.
+  expect(await gated($, 'R=/c/Users/u/infra; git -C $R push origin main')).toBe(false)
+  for (const command of [
+    'R=/c/Users/u/infra; true || R=/c/Users/u/nope; git -C $R push origin main',
+    'R=/c/Users/u/nope; R=/c/Users/u/infra; git -C $R push origin main',
+    'true && R=/c/Users/u/infra; git -C $R push origin main',
+    'R=/c/Users/u/infra | cat; git -C $R push origin main',
+    '(R=/c/Users/u/infra); git -C $R push origin main',
+    '(R=/c/Users/u/infra; git -C $R push origin main)',
+    'R=/c/Users/u/infra & git -C $R push origin main',
+    'true | R=/c/Users/u/infra; git -C $R push origin main',
+  ]) {
+    expect(await gated($, command)).toBe(true)
+  }
+  // PowerShell: $r i $R to ta sama zmienna, więc dwa przypisania nie są pewne.
+  const ps = "$r = 'C:/Users/u/infra'; $R = 'C:/Users/u/nope'; git -C $r push origin main"
+  expect(await gated($, ps, 'PowerShell')).toBe(true)
+  expect(await gated($, "$r = 'C:/Users/u/infra'; git -C $R push origin main", 'PowerShell')).toBe(false)
+})
+
+test('bramka: cd a && cd b, nieustalony katalog bez refspecu, skrócony sha we wspólnym magazynie', async ($, on) => {
+  const store: Record<string, unknown> = { 'przeglady:*': { [INFRA.slice(0, 12)]: 'ok' } }
+  await started($, on, infraRun, store)
+  // Skrócony sha we wspólnym magazynie jest ignorowany.
+  expect(await gated($, 'git -C /c/Users/u/infra push origin main')).toBe(true)
+  store['przeglady:*'] = { [INFRA]: 'ok' }
+  expect(await gated($, 'git -C /c/Users/u/infra push origin main')).toBe(false)
+  // Drugi cd względny liczy się od pierwszego: podkatalog nie jest znanym repo.
+  expect(await gated($, 'cd /c/Users/u/infra && cd sub && git push origin main')).toBe(true)
+  expect(await gated($, 'cd /c/Users/u/nope && cd /c/Users/u/infra && git push origin main')).toBe(false)
+  // Nieustalony katalog, push bez refspecu.
+  const bare = await $.tool.call({ tool: 'Bash', command: 'git -C $UNSET push' } as never)
+  expect(String(bare.deny ?? bare.text)).toContain('could not be resolved in repository $UNSET')
+  // Inny werdykt dla tego samego sha w drugim kluczu wygrywa nad ok.
+  store['przeglady:/repo'] = { [INFRA]: 'changes' }
+  expect(await gated($, 'git -C /c/Users/u/infra push origin main')).toBe(true)
 })
