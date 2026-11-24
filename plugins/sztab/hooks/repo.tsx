@@ -345,6 +345,10 @@ function gitArgs(words: string[]): { args: string[]; dir?: string } | undefined 
   return { args: words.slice(j), dir }
 }
 
+const CD_WORDS = ['cd', 'pushd', 'chdir', 'set-location', 'sl']
+// Katalog po `cd`, którego skutku nie da się ustalić; zawiera `$`, więc bramka traktuje go jak nierozwiązany.
+const CONDITIONAL_CD = '$CONDITIONAL_CD'
+
 const SHELLS = ['bash', 'sh', 'zsh', 'dash']
 
 // `bash -c "<cmd>"`, `pwsh -Command "<cmd>"`, `eval "<cmd>"`: polecenie w środku.
@@ -557,6 +561,9 @@ function analyze(cmd: string, ps: boolean, depth = 0): Analysis {
     }
     if (['&&', '||', '|', '&', '(', ')', '`'].includes(s.sep)) deep = true
   }
+  const condCd: boolean[] = []
+  // Nawiasy i backticki (poza cudzysłowami i ciałami heredoców) gubią granice podpowłok: każdy `cd` obok nich jest niepewny.
+  const subshell = /[()`]/.test(stripBodies(cmd).text.replace(/'[^']*'|"[^"]*"/g, ''))
   const vars: Record<string, string> = {}
   const expand = (w: string) =>
     w.replace(/\$(?:\{(\w+)\}|(\w+))/g, (m, a?: string, b?: string) => {
@@ -581,8 +588,17 @@ function analyze(cmd: string, ps: boolean, depth = 0): Analysis {
     }
     const words = s.words.map(expand)
     const w0 = (words[0] ?? '').toLowerCase()
-    if (['cd', 'pushd', 'chdir', 'set-location', 'sl'].includes(w0)) {
-      cwd = joinDir(cwd, words.slice(1).find(w => !w.startsWith('-')) ?? '~')
+    if (CD_WORDS.includes(w0)) {
+      // `cd` pewny tylko w łańcuchu `cd a && cd b` albo po `;`/nowej linii. Po `||`, `|`, `&`, w nawiasach,
+      // po `&&` z lewą stroną inną niż `cd`/przypisanie (może zawieść i nie zmienić katalogu) albo przed `||`
+      // katalog nie jest znany: zostaje nierozwiązany (= odmowa dla push do main).
+      const prev = segs[k - 1]
+      const prevOk =
+        !prev ||
+        ['', ';', '\n'].includes(prev.sep) ||
+        (prev.sep === '&&' && (CD_WORDS.includes((prev.words[0] ?? '').toLowerCase()) ? !condCd[k - 1] : assignOf(prev.words) !== undefined))
+      condCd[k] = !prevOk || ['||', '|', '&', '(', ')', '`'].includes(s.sep) || subshell
+      cwd = condCd[k] ? CONDITIONAL_CD : joinDir(cwd, words.slice(1).find(w => !w.startsWith('-')) ?? '~')
       continue
     }
     const nested = depth < 3 ? nestedOf(s.words, ps) : undefined

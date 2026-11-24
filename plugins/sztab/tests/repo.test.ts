@@ -529,3 +529,25 @@ test('bramka: cd a && cd b, nieustalony katalog bez refspecu, skrócony sha we w
   store['przeglady:/repo'] = { [INFRA]: 'changes' }
   expect(await gated($, 'git -C /c/Users/u/infra push origin main')).toBe(true)
 })
+
+test('bramka: cd warunkowy (||, |, nawiasy, && po poleceniu innym niż cd) = katalog nierozwiązany, łańcuch cd a && cd b bez zmian', async ($, on) => {
+  await started($, on, infraRun, { 'przeglady:*': { [INFRA]: 'ok' } })
+  // Kontrola: pewne łańcuchy.
+  expect(await gated($, 'cd /c/Users/u/nope && cd /c/Users/u/infra && git push origin main')).toBe(false)
+  expect(await gated($, 'false; cd /c/Users/u/infra && git push origin main')).toBe(false)
+  for (const command of [
+    'cd /c/Users/u/nope || cd /c/Users/u/infra; git push origin main',
+    'cd /c/Users/u/infra || cd /c/Users/u/nope; git push origin main',
+    'false && cd /c/Users/u/infra; git push origin main',
+    'true && cd /c/Users/u/nope && cd /c/Users/u/infra && git push origin main',
+    'echo x | cd /c/Users/u/infra; git push origin main',
+    '(cd /c/Users/u/infra); git -C . push origin main',
+    '(cd /c/Users/u/infra && true); git push origin main',
+    'cd /c/Users/u/infra & git push origin main',
+  ]) {
+    const r = await $.tool.call({ tool: 'Bash', command } as never)
+    expect(String(r.deny ?? r.text)).toContain('could not be resolved')
+  }
+  // Późniejszy pewny cd przywraca katalog.
+  expect(await gated($, 'cd /c/Users/u/nope || true; cd /c/Users/u/infra && git push origin main')).toBe(false)
+})
