@@ -127,9 +127,13 @@ async function przegladyKey($: EngineInterface): Promise<string> {
   return `przeglady:${(root ?? (await $.session.cwd())).replace(/\\/g, '/').toLowerCase()}`
 }
 
-async function loadPrzeglady($: EngineInterface): Promise<Record<string, Werdykt>> {
+// Werdykt dotyczy sha, więc ten sam wpis trafia też pod klucz wspólny: bramka sprawdza commit
+// z repozytorium docelowego (`git -C inne-repo push`), a recenzję mogła zrobić sesja w innym repo.
+const PRZEGLADY_ALL = 'przeglady:*'
+
+async function loadKey($: EngineInterface, key: string): Promise<Record<string, Werdykt>> {
   try {
-    const raw = await $.store.get(await przegladyKey($))
+    const raw = await $.store.get(key)
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
     return Object.fromEntries(
       Object.entries(raw as Record<string, unknown>).filter(
@@ -141,10 +145,20 @@ async function loadPrzeglady($: EngineInterface): Promise<Record<string, Werdykt
   }
 }
 
+async function loadPrzeglady($: EngineInterface): Promise<Record<string, Werdykt>> {
+  try {
+    return { ...(await loadKey($, PRZEGLADY_ALL)), ...(await loadKey($, await przegladyKey($))) }
+  } catch {
+    return {}
+  }
+}
+
 async function savePrzeglad($: EngineInterface, sha: string, verdict: Werdykt): Promise<void> {
   await update($, przeglady, prev => ({ ...prev, [sha]: verdict }))
   try {
-    await $.store.set(await przegladyKey($), { ...(await loadPrzeglady($)), [sha]: verdict })
+    const key = await przegladyKey($)
+    await $.store.set(key, { ...(await loadKey($, key)), [sha]: verdict })
+    await $.store.set(PRZEGLADY_ALL, { ...(await loadKey($, PRZEGLADY_ALL)), [sha]: verdict })
   } catch {
     // brak zapisu: werdykt zostaje w stanie sesji
   }
@@ -289,6 +303,11 @@ async function homeDirs($: EngineInterface): Promise<Home> {
   }
   return { home: await get(() => $.env.get('HOME')), profile: await get(() => $.env.get('USERPROFILE')) }
 }
+
+// Git Bash (`/c/Users/x`, `/cygdrive/c/x`) -> ścieżka Windows, bo `process.run` tego nie rozumie.
+// Tylko na Windowsie (jest USERPROFILE z dyskiem); gdzie indziej `/c/x` to zwykły katalog.
+const toNative = (d: string, h: Home) =>
+  /^[A-Za-z]:/.test(h.profile ?? '') ? d.replace(/^\/(?:cygdrive\/)?([A-Za-z])(?=\/|$)/, (_, l: string) => `${l.toUpperCase()}:`) : d
 
 const expandHome = (d: string, h: Home) =>
   d.replace(HOME_RE, m => (/userprofile/i.test(m) ? (h.profile ?? h.home) : (h.home ?? h.profile)) ?? m)
@@ -495,6 +514,13 @@ function analyze(cmd: string, ps: boolean, depth = 0): Analysis {
   for (const f of fed) merge(analyzeFed(f, depth))
   let cwd: string | undefined
   let seen = false
+  // Zmienne przypisane wcześniej w tym samym poleceniu (`I=/repo; git -C $I push`, `$I = '/repo'`).
+  const vars: Record<string, string> = {}
+  const expand = (w: string) =>
+    w.replace(/\$(?:\{(\w+)\}|(\w+))/g, (m, a?: string, b?: string) => {
+      const name = a ?? b ?? ''
+      return Object.hasOwn(vars, name) ? (vars[name] ?? m) : m
+    })
   for (const [k, s] of segs.entries()) {
     // `echo '<polecenie>' | sh`: wypisany tekst wykona następny kawałek.
     const next = segs[k + 1]
@@ -503,9 +529,20 @@ function analyze(cmd: string, ps: boolean, depth = 0): Analysis {
       const text = echoed(s.words)
       if (text !== undefined) merge(analyzeFed({ target, text }, depth), cwd)
     }
-    const w0 = (s.words[0] ?? '').toLowerCase()
+    const assigns = (s.words[0] === 'export' ? s.words.slice(1) : s.words).map(w => /^([A-Za-z_]\w*)=([\s\S]*)$/.exec(w))
+    if (assigns.length > 0 && assigns.every(m => m !== null)) {
+      for (const m of assigns) if (m) vars[m[1] ?? ''] = expand(m[2] ?? '')
+      continue
+    }
+    const psAssign = /^\$(\w+)$/.exec(s.words[0] ?? '')
+    if (ps && psAssign && s.words[1] === '=' && s.words.length === 3) {
+      vars[psAssign[1] ?? ''] = expand(s.words[2] ?? '')
+      continue
+    }
+    const words = s.words.map(expand)
+    const w0 = (words[0] ?? '').toLowerCase()
     if (['cd', 'pushd', 'chdir', 'set-location', 'sl'].includes(w0)) {
-      cwd = joinDir(cwd, s.words.slice(1).find(w => !w.startsWith('-')) ?? '~')
+      cwd = joinDir(cwd, words.slice(1).find(w => !w.startsWith('-')) ?? '~')
       continue
     }
     const nested = depth < 3 ? nestedOf(s.words, ps) : undefined
@@ -513,7 +550,7 @@ function analyze(cmd: string, ps: boolean, depth = 0): Analysis {
       merge(analyze(nested.cmd, nested.ps, depth + 1), cwd)
       continue
     }
-    const g = gateOf(s.words, cwd)
+    const g = gateOf(words, cwd)
     if (g.gate) res.gates.push(g.gate)
     seen ||= g.seen
     if (isDeploy(s.words, ps, depth)) res.deploy = true
@@ -582,11 +619,11 @@ function commandOf(e: unknown): { cmd: string; ps: boolean } | undefined {
 
 const UNBLOCK_OWNER = ' Or the owner starts their prompt with "bez przeglądu" (or "skip review"); that allows the next such command once.'
 
-const DENY_REVIEW = (cmd: string, ref: string, sha: string | undefined, verdict: Werdykt | undefined) =>
+const DENY_REVIEW = (cmd: string, ref: string, sha: string | undefined, verdict: Werdykt | undefined, dir?: string) =>
   `sztab: blocked \`${cmd.slice(0, 80)}\`. Merging or pushing into main/master needs a passed review, and ` +
   (sha
     ? `commit ${sha.slice(0, 12)} (${ref}) has ${verdict ? `verdict "${verdict}"` : 'no review verdict'}.`
-    : `the commit to be merged (${ref}) could not be resolved.`) +
+    : `the commit to be merged (${ref}) could not be resolved in ${dir ? `repository ${dir}` : 'the session repository'}.`) +
   ` To unblock: spawn sztab:recenzent on ${sha ? `commit ${sha}` : 'this diff'}; its last line \`verdict: ok sha: ${sha ?? '<sha>'}\` unblocks it.` +
   UNBLOCK_OWNER
 
@@ -614,15 +651,16 @@ async function judge($: EngineInterface, cmd: string, ps: boolean, agentId?: str
   const base = agentId ? (await read($, agentCwd))[agentId] : undefined
   const mainGate = await read($, bramkaMain)
   const joined = mainGate ? a.gates.filter(mayHitMain).map(g => ({ ...g, cwd: g.cwd ? joinDir(base, g.cwd) : base })) : []
-  const home = joined.some(g => g.cwd !== undefined && HOME_RE.test(g.cwd)) ? await homeDirs($) : {}
-  const gates = joined.map(g => ({ ...g, cwd: g.cwd === undefined ? undefined : expandHome(g.cwd, home) }))
+  const home = joined.some(g => g.cwd !== undefined) ? await homeDirs($) : {}
+  const gates = joined.map(g => ({ ...g, cwd: g.cwd === undefined ? undefined : toNative(expandHome(g.cwd, home), home) }))
   const unparsed = mainGate && a.unparsed
   if (gates.length === 0 && !a.deploy && !unparsed) return undefined
 
   const z = await read($, zgoda)
   let reviewDenied = unparsed ? DENY_UNPARSED(cmd) : undefined
   if (!reviewDenied && gates.length > 0) {
-    const all = await read($, przeglady)
+    // Werdykty z magazynu (też z innych sesji) razem ze stanem sesji.
+    const all = { ...(await read($, przeglady)), ...(await loadPrzeglady($)) }
     // Gałąź nieznana (błąd, odłączony HEAD) = może być main.
     const branches = new Map<string, string>()
     const branchOf = async (cwd?: string) => {
@@ -633,15 +671,15 @@ async function judge($: EngineInterface, cmd: string, ps: boolean, agentId?: str
       }
       return branches.get(key) ?? ''
     }
-    const check = (ref: string, sha: string | undefined) => {
+    const check = (ref: string, sha: string | undefined, dir?: string) => {
       const verdict = sha ? verdictFor(sha, all) : undefined
-      return verdict === 'ok' ? undefined : DENY_REVIEW(cmd, ref, sha, verdict)
+      return verdict === 'ok' ? undefined : DENY_REVIEW(cmd, ref, sha, verdict, dir)
     }
     for (const g of gates) {
       if (g.kind === 'pr') {
         const pr = await prInfo($, g.args, g.cwd)
         if (!pr) reviewDenied = DENY_PR(cmd)
-        else if (MAIN.has(pr.base)) reviewDenied = check('PR head', pr.head)
+        else if (MAIN.has(pr.base)) reviewDenied = check('PR head', pr.head, g.cwd)
       } else {
         for (const t of g.targets) {
           if (t.dst !== null && !MAIN.has(t.dst)) continue
@@ -652,7 +690,7 @@ async function judge($: EngineInterface, cmd: string, ps: boolean, agentId?: str
             const b = await branchOf(dir)
             if (b !== '' && !MAIN.has(b)) continue
           }
-          reviewDenied = check(t.src ?? 'all/deleted refs', t.src === null ? undefined : await revParse($, t.src, dir))
+          reviewDenied = check(t.src ?? 'all/deleted refs', t.src === null ? undefined : await revParse($, t.src, dir), dir)
           if (reviewDenied) break
         }
       }

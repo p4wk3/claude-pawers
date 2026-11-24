@@ -423,3 +423,68 @@ test('.claude/sztab.json bramka.main=false: push na main przechodzi, wdrożenie 
   expect(await gated($, 'gh pr merge 12')).toBe(false)
   expect(await gated($, './scripts/wdroz-mnghub sha-1234567')).toBe(true)
 })
+
+// Repozytorium docelowe: git -C, cd i zmienne wskazują inny katalog niż sesja (/x); ścieżki Git Bash
+// (/c/...) i Windows trafiają do git jako C:/... Repo "infra" jest na main z własnym HEAD.
+const INFRA = 'cafe0003cafe0003cafe0003cafe0003cafe0003'
+const infraRun = (argv: readonly string[], init?: Init): Run => {
+  if (init?.cwd?.replace(/\\/g, '/') === 'C:/Users/u/infra') {
+    const cmd = argv.join(' ')
+    if (cmd === 'git branch --show-current') return { exitCode: 0, stdout: 'main\n' }
+    if (cmd.startsWith('git rev-parse --verify --quiet ')) {
+      const ref = (argv[4] ?? '').replace(/\^\{commit\}$/, '')
+      return ref === 'main' || ref === INFRA ? { exitCode: 0, stdout: `${INFRA}\n` } : { exitCode: 1, stdout: '' }
+    }
+    return { exitCode: 1, stdout: '' }
+  }
+  if (init?.cwd !== undefined) return { exitCode: 128, stdout: '' }
+  return git(argv, init)
+}
+const INFRA_PUSHES = [
+  'git -C /c/Users/u/infra push origin main',
+  'git -C "C:\\Users\\u\\infra" push origin main',
+  'git -C C:/Users/u/infra push origin main',
+  `git -C '/c/Users/u/infra' push origin ${INFRA}:refs/heads/main`,
+  'cd /c/Users/u/infra && git push origin main',
+  'I=/c/Users/u/infra; git -C $I push -q origin main',
+  'I=/c/Users/u/infra\ngit -C "$I" push origin main',
+  'export I=/c/Users/u/infra; cd ${I} && git push origin main',
+]
+
+test('bramka: commit z repozytorium docelowego (git -C, cd, zmienna), nie z katalogu sesji', async ($, on) => {
+  await started($, on, infraRun)
+  for (const command of INFRA_PUSHES) {
+    const r = await $.tool.call({ tool: 'Bash', command } as never)
+    expect(String(r.deny ?? r.text)).toContain(`verdict: ok sha: ${INFRA}`)
+  }
+  const ps = await $.tool.call({ tool: 'PowerShell', command: "$I = 'C:\\Users\\u\\infra'; git -C $I push origin main" } as never)
+  expect(String(ps.deny ?? ps.text)).toContain(`verdict: ok sha: ${INFRA}`)
+  // Werdykt dla sha z tego repo (recenzja w sesji z innego katalogu) odblokowuje każdą z postaci.
+  await review($, `verdict: ok sha: ${INFRA}`)
+  for (const command of INFRA_PUSHES) expect(await gated($, command)).toBe(false)
+  expect(await gated($, "$I = 'C:\\Users\\u\\infra'; git -C $I push origin main", 'PowerShell')).toBe(false)
+  // Werdykt innego sha nie pomaga.
+  expect(await gated($, 'git push origin main')).toBe(true)
+})
+
+test('bramka: werdykt zapisany przez inną sesję (magazyn wspólny) odblokowuje sha z innego repo', async ($, on) => {
+  await started($, on, infraRun, { 'przeglady:*': { [INFRA]: 'ok' } })
+  expect(await gated($, 'git -C /c/Users/u/infra push origin main')).toBe(false)
+})
+
+test('bramka: werdykt dopisany do magazynu po starcie sesji też działa', async ($, on) => {
+  const out = await started($, on, infraRun)
+  expect(await gated($, 'cd /c/Users/u/infra && git push origin main')).toBe(true)
+  out.store['przeglady:*'] = { [INFRA]: 'ok' }
+  expect(await gated($, 'cd /c/Users/u/infra && git push origin main')).toBe(false)
+})
+
+test('bramka: repozytorium docelowe nie do ustalenia = odmowa z nazwą próbowanego katalogu', async ($, on) => {
+  await started($, on, infraRun, { 'przeglady:*': { [INFRA]: 'ok' } })
+  const nope = await $.tool.call({ tool: 'Bash', command: 'git -C /c/Users/u/nope push origin main' } as never)
+  expect(String(nope.deny ?? nope.text)).toContain('could not be resolved in repository C:/Users/u/nope')
+  const unset = await $.tool.call({ tool: 'Bash', command: 'git -C $UNSET push origin main' } as never)
+  expect(String(unset.deny ?? unset.text)).toContain('could not be resolved in repository $UNSET')
+  const dyn = await $.tool.call({ tool: 'Bash', command: 'I=$(pwd); git -C $I push origin main' } as never)
+  expect(String(dyn.deny ?? dyn.text)).toContain('could not be resolved')
+})
