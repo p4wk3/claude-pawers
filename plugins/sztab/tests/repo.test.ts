@@ -548,6 +548,63 @@ test('bramka: cd warunkowy (||, |, nawiasy, && po poleceniu innym niż cd) = kat
     const r = await $.tool.call({ tool: 'Bash', command } as never)
     expect(String(r.deny ?? r.text)).toContain('could not be resolved')
   }
-  // Późniejszy pewny cd przywraca katalog.
-  expect(await gated($, 'cd /c/Users/u/nope || true; cd /c/Users/u/infra && git push origin main')).toBe(false)
+  // `||` gdziekolwiek w poleceniu wyprowadza je poza model: katalog nierozwiązany nawet po późniejszym pewnym cd.
+  expect(await gated($, 'cd /c/Users/u/nope || true; cd /c/Users/u/infra && git push origin main')).toBe(true)
+})
+
+test('bramka: whitelist modelu (przypisanie, cd, git, inne); wszystko poza nim = katalog nierozwiązany', async ($, on) => {
+  await started($, on, infraRun, { 'przeglady:*': { [INFRA]: 'ok' } })
+  const D = '/c/Users/u/infra'
+  const N = '/c/Users/u/nope'
+  // Kontrole: w modelu katalog się rozwiązuje, werdykt odblokowuje.
+  for (const command of [
+    `X=${D}; git -C $X push origin main`,
+    `cd ${D} && git push origin main`,
+    `cd ${N} && cd ${D} && git push origin main`,
+    `cd ${N}; cd ${D}; git push origin main`,
+    `git commit -m "$(date)" && git -C ${D} push origin main`,
+    `git -C ${D} push origin main 2>&1`,
+  ]) {
+    expect(await gated($, command)).toBe(false)
+  }
+  for (const command of [
+    `R=${N}; for R in ${D}; do git -C $R push origin main; done`,
+    `R=${N}; declare R=${D}; git -C $R push origin main`,
+    `R=${N}; read R <<< ${D}; git -C $R push origin main`,
+    `R=${N}; printf -v R ${D}; git -C $R push origin main`,
+    `R=${N}; R+=x; git -C $R push origin main`,
+    `R=${N}; echo \${R:=${D}}; git -C $R push origin main`,
+    `R=${N}; echo "\${R:=${D}}"; git -C $R push origin main`,
+    `R=${N}; echo "$((R=1))"; git -C $R push origin main`,
+    `R=${N}; local R=${D}; git -C $R push origin main`,
+    `{ cd ${D}; }; git push origin main`,
+    `if true; then cd ${D}; fi; git push origin main`,
+    `command cd ${D}; git push origin main`,
+    `builtin cd ${D}; git push origin main`,
+    `eval cd ${D}; git push origin main`,
+    `pushd ${D}; git push origin main`,
+    `cd ${D}; popd; git push origin main`,
+    `cd ${D} || exit; git push origin main`,
+    `cd ${N} && cd ${D}; git push origin main`,
+    `HOME=${D}; cd ~; git push origin main`,
+    `git --git-dir=${D}/.git push origin main`,
+    `git --work-tree=${D} push origin main`,
+    `GIT_DIR=${D}/.git git push origin main`,
+    `env -C ${D} git push origin main`,
+    `sudo -D ${D} git push origin main`,
+    `echo "$(echo ")")" ; (cd ${D}); git push origin main`,
+  ]) {
+    const r = await $.tool.call({ tool: 'Bash', command } as never)
+    expect([command, blocked(r)]).toEqual([command, true])
+  }
+  for (const command of [
+    `Push-Location C:/Users/u/infra; git push origin main`,
+    `$R = 'C:/Users/u/nope'; Set-Variable R 'C:/Users/u/infra'; git -C $R push origin main`,
+    `$r = 'C:/Users/u/infra'; $R = 'C:/Users/u/nope'; git -C $r push origin main`,
+    `$env:HOME = 'C:/Users/u/infra'; Set-Location ~; git push origin main`,
+  ]) {
+    expect(await gated($, command, 'PowerShell')).toBe(true)
+  }
+  // Jawny cel inny niż main przechodzi także poza modelem.
+  expect(await gated($, `cd ${D} || exit; git push origin feature/x`)).toBe(false)
 })

@@ -345,7 +345,7 @@ function gitArgs(words: string[]): { args: string[]; dir?: string } | undefined 
   return { args: words.slice(j), dir }
 }
 
-const CD_WORDS = ['cd', 'pushd', 'chdir', 'set-location', 'sl']
+const CD_WORDS = ['cd', 'set-location', 'sl']
 // Katalog po `cd`, którego skutku nie da się ustalić; zawiera `$`, więc bramka traktuje go jak nierozwiązany.
 const CONDITIONAL_CD = '$CONDITIONAL_CD'
 
@@ -527,6 +527,155 @@ function echoed(words: string[]): string | undefined {
   return undefined
 }
 
+// --- Model, w którym katalog i zmienne są rozstrzygane statycznie ---
+
+// Słowa, które zmieniają katalog albo zmienne w sposób, którego model nie śledzi (gdziekolwiek w poleceniu).
+const OUTSIDE_WORDS = new Set([
+  'for', 'while', 'until', 'case', 'select', 'function', 'if', 'then', 'elif', 'else', 'do', 'done', 'fi', 'esac', 'coproc', '{', '}',
+  'eval', 'source', 'command', 'builtin', 'exec', 'declare', 'typeset', 'local', 'read', 'readonly', 'unset', 'let', 'mapfile',
+  'readarray', 'getopts', 'alias', 'unalias', 'trap', 'chdir', 'pushd', 'popd', 'push-location', 'pop-location',
+  'set-variable', 'new-variable', 'remove-variable', 'clear-variable', 'sv', 'nv', 'invoke-expression', 'iex', '+=', '-=',
+])
+// Przypisania, które zmieniają działanie `cd`/`git` albo repozytorium (też jako przedrostek polecenia).
+const OUTSIDE_ASSIGN = /^(?:HOME|PWD|OLDPWD|CDPATH|GIT_[A-Z_]+)=/i
+const OUTSIDE_GIT = /^(?:--git-dir|--work-tree|--namespace)|core\.(?:worktree|bare)/i
+const REBIND = /^(?:[A-Za-z_]\w*|\$\w+)(?:\[[^\]]*\])?\+=|^[A-Za-z_]\w*\[[^\]]*\]=/
+const PREFIX_DIR_FLAG = /^(?:-C|-D|-S|--chdir|--split-string)/
+
+// Przypisanie zmiennej w całym kawałku: `NAME=v` (też `export NAME=v`), PowerShell `$name = v` i `$name=v`.
+function assignOf(words: string[], ps: boolean): { name: string; value: string }[] | undefined {
+  const list = (words[0] === 'export' ? words.slice(1) : words).map(w => /^([A-Za-z_]\w*)=([\s\S]*)$/.exec(w))
+  if (list.length > 0 && list.every(m => m !== null)) return list.map(m => ({ name: m?.[1] ?? '', value: m?.[2] ?? '' }))
+  if (!ps) return undefined
+  const spaced = /^\$(\w+)$/.exec(words[0] ?? '')
+  if (spaced && words[1] === '=' && words.length === 3) return [{ name: spaced[1] ?? '', value: words[2] ?? '' }]
+  const glued = words.length === 1 ? /^\$(\w+)=([\s\S]*)$/.exec(words[0] ?? '') : null
+  return glued ? [{ name: glued[1] ?? '', value: glued[2] ?? '' }] : undefined
+}
+
+// Tekst polecenia bez cudzysłowów, ciał heredoców i znaków wyjściowych; undefined, gdy cudzysłowy się nie domykają
+// albo w cudzysłowie siedzi coś, co wykonuje się w bieżącej powłoce (backtick, `$((`, w PowerShellu `$(`).
+function skeletonOf(cmd: string, ps: boolean): string | undefined {
+  const t = stripBodies(cmd.replace(/\\\r?\n/g, ' ').replace(/`\r?\n/g, ' ')).text
+  const esc = ps ? '`' : '\\'
+  const single = (i: number) => {
+    const j = t.indexOf("'", i + 1)
+    return j < 0 ? -1 : j + 1
+  }
+  const sub = (from: number): number => {
+    let depth = 1
+    let i = from
+    while (i < t.length) {
+      const c = t[i]
+      if (c === esc) i += 2
+      else if (c === "'") i = single(i)
+      else if (c === '"') i = dq(i)
+      else if (c === '(') {
+        depth++
+        i++
+      } else if (c === ')') {
+        depth--
+        i++
+        if (depth === 0) return i
+      } else i++
+      if (i < 0) return -1
+    }
+    return -1
+  }
+  const dq = (from: number): number => {
+    let i = from + 1
+    while (i < t.length) {
+      const c = t[i]
+      if (c === esc) i += 2
+      else if (c === '"') return i + 1
+      else if (c === '`' && !ps) return -1
+      else if (c === '$' && t[i + 1] === '(') {
+        if (ps || t[i + 2] === '(') return -1
+        i = sub(i + 2)
+        if (i < 0) return -1
+      } else i++
+    }
+    return -1
+  }
+  let out = ''
+  let i = 0
+  while (i < t.length) {
+    const c = t[i]
+    if (c === esc) {
+      out += '_'
+      i += 2
+    } else if (c === "'" || c === '"') {
+      i = c === "'" ? single(i) : dq(i)
+      if (i < 0) return undefined
+      out += '""'
+    } else {
+      out += c
+      i++
+    }
+  }
+  return out
+}
+
+const refsOf = (w: string, ps: boolean) => [...w.matchAll(/\$\{?[#!]?(\w+)/g)].map(m => (ps ? (m[1] ?? '').toLowerCase() : (m[1] ?? '')))
+
+// Whitelist: model to kawałki rozdzielone `;`, nową linią i `&&`, z których każdy to (a) przypisanie zmiennej,
+// (b) `cd|Set-Location|sl <ścieżka>`, (c) polecenie git/gh, (d) inne polecenie bez słów zmieniających katalog
+// czy zmienne. Cokolwiek innego w poleceniu (pętle, `if`, `{`, `(`, `|`, `||`, `&`, `eval`, `pushd`, `declare`,
+// `--git-dir`, `env -C`…) = `outside`: katalog docelowy jest nierozwiązany.
+// `assignedOnce`: nazwy przypisane dokładnie raz formą (a); `tainted`: nazwy wspomniane gdziekolwiek poza
+// ścieżką `cd`/`git -C` (taka nazwa mogła zostać przepisana: `${R:=x}`), nie są rozwijane.
+function modelOf(cmd: string, segs: Seg[], ps: boolean): { outside: boolean; assignedOnce: Set<string>; tainted: Set<string> } {
+  const assignedOnce = new Set<string>()
+  const tainted = new Set<string>()
+  const skeleton = skeletonOf(cmd, ps)
+  let outside =
+    skeleton === undefined ||
+    /[()`|]/.test(skeleton) ||
+    /&/.test(skeleton.replace(/&&/g, '').replace(/[0-9]*[<>]&[0-9-]*|&>>?/g, ''))
+  const counts = new Map<string, number>()
+  const key = (n: string) => (ps ? n.toLowerCase() : n)
+  for (const s of segs) {
+    const w = s.words
+    const head = headIndex(w)
+    const assigned = assignOf(w, ps)
+    if (w.some(x => OUTSIDE_WORDS.has(x.toLowerCase()) || OUTSIDE_ASSIGN.test(x) || OUTSIDE_GIT.test(x))) outside = true
+    if (w.some(x => REBIND.test(x))) outside = true
+    if (ps && w.some((x, i) => /^\$env:\w+$/i.test(x) && w[i + 1] === '=')) outside = true
+    const h = baseName(w[head] ?? '')
+    if (w[head] === '.' || (h === 'printf' && w.includes('-v'))) outside = true
+    // Przedrostek (`env -C d`, `sudo -D d`) zmienia katalog polecenia; git/gh musi stać na początku.
+    if (w.slice(0, head).some(x => PREFIX_DIR_FLAG.test(x))) outside = true
+    if (assigned) {
+      for (const x of assigned) {
+        const k = key(x.name)
+        counts.set(k, (counts.get(k) ?? 0) + 1)
+        for (const r of refsOf(x.value, ps)) tainted.add(r)
+      }
+      continue
+    }
+    const cd = CD_WORDS.includes((w[0] ?? '').toLowerCase())
+    if (cd) {
+      if (w.length > 2 || (w[1] ?? '').startsWith('-')) outside = true
+      continue
+    }
+    // Ścieżka z `git -C <ścieżka>` może zawierać zmienne; reszta kawałka je tylko wspomina.
+    const gitAt = w.findIndex(x => isExe(x, 'git'))
+    const pathAt = new Set<number>()
+    if (gitAt >= 0) {
+      for (let j = gitAt + 1; j < w.length && (w[j] ?? '').startsWith('-'); j += ['-C', '-c'].includes(w[j] ?? '') ? 2 : 1) {
+        if (w[j] === '-C') pathAt.add(j + 1)
+      }
+    }
+    w.forEach((x, i) => {
+      if (pathAt.has(i)) return
+      if ((isExe(x, 'git') || isExe(x, 'gh')) && i !== head) outside = true
+      for (const r of refsOf(x, ps)) tainted.add(r)
+    })
+  }
+  for (const [k, n] of counts) if (n === 1) assignedOnce.add(k)
+  return { outside, assignedOnce, tainted }
+}
+
 function analyze(cmd: string, ps: boolean, depth = 0): Analysis {
   const res: Analysis = { gates: [], deploy: false, unparsed: false }
   const { segs, fed } = lex(cmd, ps)
@@ -538,38 +687,19 @@ function analyze(cmd: string, ps: boolean, depth = 0): Analysis {
   for (const f of fed) merge(analyzeFed(f, depth))
   let cwd: string | undefined
   let seen = false
-  // Zmienne przypisane wcześniej w tym samym poleceniu (`I=/repo; git -C $I push`, `$I = '/repo'`).
-  // Rozwijamy tylko nazwy przypisane dokładnie raz, na najwyższym poziomie, przed `|`, `&`, `(`, `)`:
-  // inaczej nie wiadomo, która wartość obowiązuje, i `$X` zostaje nierozwinięte (= odmowa).
-  // W PowerShellu nazwy zmiennych nie rozróżniają wielkości liter.
+  // Katalog i zmienne rozstrzygamy tylko w wąskim modelu (patrz `modelOf`); poza nim katalog docelowy
+  // jest nierozwiązany i bramka odmawia dla push/merge do main.
+  const model = modelOf(cmd, segs, ps)
   const nameKey = (n: string) => (ps ? n.toLowerCase() : n)
-  const assignOf = (words: string[]): { name: string; value: string }[] | undefined => {
-    const list = (words[0] === 'export' ? words.slice(1) : words).map(w => /^([A-Za-z_]\w*)=([\s\S]*)$/.exec(w))
-    if (list.length > 0 && list.every(m => m !== null)) return list.map(m => ({ name: m?.[1] ?? '', value: m?.[2] ?? '' }))
-    const m = /^\$(\w+)$/.exec(words[0] ?? '')
-    return ps && m && words[1] === '=' && words.length === 3 ? [{ name: m[1] ?? '', value: words[2] ?? '' }] : undefined
-  }
-  const counts = new Map<string, number>()
-  const unsafe = new Set<string>()
-  // Nawiasy i backticki gubią się przy podziale na kawałki (pusty kawałek znika): z nimi żadna zmienna nie jest pewna.
-  let deep = /[()`]/.test(cmd)
-  for (const s of segs) {
-    for (const x of assignOf(s.words) ?? []) {
-      const key = nameKey(x.name)
-      counts.set(key, (counts.get(key) ?? 0) + 1)
-      if (deep || ['|', '&', '(', ')', '`'].includes(s.sep)) unsafe.add(key)
-    }
-    if (['&&', '||', '|', '&', '(', ')', '`'].includes(s.sep)) deep = true
-  }
-  const condCd: boolean[] = []
-  // Nawiasy i backticki (poza cudzysłowami i ciałami heredoców) gubią granice podpowłok: każdy `cd` obok nich jest niepewny.
-  const subshell = /[()`]/.test(stripBodies(cmd).text.replace(/'[^']*'|"[^"]*"/g, ''))
   const vars: Record<string, string> = {}
   const expand = (w: string) =>
     w.replace(/\$(?:\{(\w+)\}|(\w+))/g, (m, a?: string, b?: string) => {
       const key = nameKey(a ?? b ?? '')
       return Object.hasOwn(vars, key) ? (vars[key] ?? m) : m
     })
+  // Łańcuch `a && b && c` wykonuje się do pierwszej porażki; `skippable[k]` = segment k może zostać pominięty.
+  const skippable: boolean[] = []
+  let chainCds = 0
   for (const [k, s] of segs.entries()) {
     // `echo '<polecenie>' | sh`: wypisany tekst wykona następny kawałek.
     const next = segs[k + 1]
@@ -578,27 +708,28 @@ function analyze(cmd: string, ps: boolean, depth = 0): Analysis {
       const text = echoed(s.words)
       if (text !== undefined) merge(analyzeFed({ target, text }, depth), cwd)
     }
-    const assigned = assignOf(s.words)
+    const prev = segs[k - 1]
+    if (prev && prev.sep !== '&&') {
+      // Nowy łańcuch. Dwa `cd` w poprzednim (`cd a && cd b; git push`): pierwszy mógł zawieść (a nie jest
+      // sprawdzany przez bramkę), więc katalog to a, b albo dotychczasowy. Jeden `cd` bramka sprawdza sama:
+      // git uruchomiony w jego katalogu, więc `cd` do niego się powiedzie.
+      if (chainCds >= 2) cwd = CONDITIONAL_CD
+      chainCds = 0
+    }
+    const prevStable = prev !== undefined && (CD_WORDS.includes((prev.words[0] ?? '').toLowerCase()) || assignOf(prev.words, ps) !== undefined)
+    skippable[k] = prev !== undefined && prev.sep === '&&' && (skippable[k - 1] === true || !prevStable)
+    const assigned = assignOf(s.words, ps)
     if (assigned) {
       for (const x of assigned) {
         const key = nameKey(x.name)
-        if (counts.get(key) === 1 && !unsafe.has(key)) vars[key] = expand(x.value)
+        if (!skippable[k] && model.assignedOnce.has(key) && !model.tainted.has(key)) vars[key] = expand(x.value)
       }
       continue
     }
     const words = s.words.map(expand)
-    const w0 = (words[0] ?? '').toLowerCase()
-    if (CD_WORDS.includes(w0)) {
-      // `cd` pewny tylko w łańcuchu `cd a && cd b` albo po `;`/nowej linii. Po `||`, `|`, `&`, w nawiasach,
-      // po `&&` z lewą stroną inną niż `cd`/przypisanie (może zawieść i nie zmienić katalogu) albo przed `||`
-      // katalog nie jest znany: zostaje nierozwiązany (= odmowa dla push do main).
-      const prev = segs[k - 1]
-      const prevOk =
-        !prev ||
-        ['', ';', '\n'].includes(prev.sep) ||
-        (prev.sep === '&&' && (CD_WORDS.includes((prev.words[0] ?? '').toLowerCase()) ? !condCd[k - 1] : assignOf(prev.words) !== undefined))
-      condCd[k] = !prevOk || ['||', '|', '&', '(', ')', '`'].includes(s.sep) || subshell
-      cwd = condCd[k] ? CONDITIONAL_CD : joinDir(cwd, words.slice(1).find(w => !w.startsWith('-')) ?? '~')
+    if (CD_WORDS.includes((words[0] ?? '').toLowerCase())) {
+      chainCds++
+      cwd = skippable[k] ? CONDITIONAL_CD : joinDir(cwd, words[1] ?? '~')
       continue
     }
     const nested = depth < 3 ? nestedOf(s.words, ps) : undefined
@@ -622,7 +753,8 @@ function analyze(cmd: string, ps: boolean, depth = 0): Analysis {
     const gh = bare.some(w => isExe(w, 'gh')) && bare.includes('pr') && bare.includes('merge')
     if (git || gh) res.unparsed = true
   }
-  res.cwd = cwd
+  if (model.outside) res.gates = res.gates.map(g => ({ ...g, cwd: CONDITIONAL_CD }))
+  res.cwd = model.outside ? CONDITIONAL_CD : cwd
   return res
 }
 
