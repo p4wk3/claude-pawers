@@ -25,7 +25,8 @@ async function loadBramka($: EngineInterface): Promise<boolean> {
 // Ten sam klucz co w register.tsx: typ agenta po id.
 const agents = atom({ plugin: 'sztab', key: 'agents' } as const, [])
 
-const MAIN = new Set(['main', 'master'])
+// Gałąź docelowa liczy się jako main także w postaci `heads/main`, `refs/heads/main` i `release/main`.
+const isMain = (b: string) => /^(?:.*\/)?(?:main|master)$/i.test(b)
 const VERDICT_RE = /^verdict:\s*(ok|changes|reject)\s+sha:\s*([0-9a-f]{7,40})/gim
 // Nazwa skryptu/komendy wdrożenia (`wdroz-mnghub`, `./deploy.sh`) i workflow (`deploy.yml`).
 const DEPLOY_NAME = /^wdroz|deploy/i
@@ -333,19 +334,25 @@ const expandHome = (d: string, h: Home) =>
   d.replace(HOME_RE, m => (/userprofile/i.test(m) ? (h.profile ?? h.home) : (h.home ?? h.profile)) ?? m)
 
 // Słowa po podkomendzie gita (`git -C x push ...` -> ['push', ...]) i katalog z `-C`.
-function gitArgs(words: string[]): { args: string[]; dir?: string } | undefined {
+function gitArgs(words: string[]): { args: string[]; dir?: string; cfg: string[] } | undefined {
   const i = words.findIndex(w => isExe(w, 'git'))
   if (i < 0) return undefined
   let dir: string | undefined
+  const cfg: string[] = []
   let j = i + 1
   while (j < words.length && (words[j] ?? '').startsWith('-')) {
-    if (words[j] === '-C') dir = joinDir(dir, words[j + 1] ?? '')
-    j += ['-C', '-c'].includes(words[j] ?? '') ? 2 : 1
+    const w = words[j] ?? ''
+    if (w === '-C') dir = joinDir(dir, words[j + 1] ?? '')
+    if (w === '-c') cfg.push(words[j + 1] ?? '')
+    else if (/^-c./.test(w) || w.startsWith('--config-env')) cfg.push(w)
+    j += ['-C', '-c'].includes(w) ? 2 : 1
   }
-  return { args: words.slice(j), dir }
+  return { args: words.slice(j), dir, cfg }
 }
 
 const CD_WORDS = ['cd', 'set-location', 'sl']
+// Prawdziwe `cd`: w bashu tylko `cd` (małymi), w PowerShellu aliasy bez względu na wielkość liter.
+const isCd = (w: string | undefined, ps: boolean) => (ps ? CD_WORDS.includes((w ?? '').toLowerCase()) : w === 'cd')
 // Katalog po `cd`, którego skutku nie da się ustalić; zawiera `$`, więc bramka traktuje go jak nierozwiązany.
 const CONDITIONAL_CD = '$CONDITIONAL_CD'
 
@@ -373,7 +380,8 @@ function nestedOf(words: string[], ps: boolean): { cmd: string; ps: boolean } | 
 
 // Co trafia do gałęzi: `src` to ref do rozwiązania (null = nie da się: kasowanie, --all),
 // `dst` gałąź docelowa (null = bieżąca gałąź).
-type Target = { src: string | null; dst: string | null }
+// `implicit`: push bez refspecu, czyli według push.default i remote.*.push.
+type Target = { src: string | null; dst: string | null; implicit?: boolean }
 type Gate = { kind: 'git'; targets: Target[]; cwd?: string } | { kind: 'pr'; args: string[]; cwd?: string }
 
 const VALUE_FLAGS = new Set(['-o', '--push-option', '--receive-pack', '--exec', '--repo'])
@@ -395,15 +403,17 @@ function gateOf(words: string[], cwd: string | undefined): { gate?: Gate; seen: 
       else if (w === '-d' || w === '--delete') del = true
       else if (!w.startsWith('-')) pos.push(w)
     }
-    if (all) return { seen: true, gate: { kind: 'git', targets: [{ src: null, dst: 'main' }], cwd: dir } }
+    // `-c push.default=…`, `-c remote.x.push=…`: konfiguracja z linii poleceń może skierować push na main.
+    const cfgPush = (g?.cfg ?? []).some(c => /push/i.test(c))
+    if (all || cfgPush) return { seen: true, gate: { kind: 'git', targets: [{ src: null, dst: 'main' }], cwd: dir } }
     const specs = pos.slice(1)
-    if (specs.length === 0) return { seen: true, gate: { kind: 'git', targets: [{ src: 'HEAD', dst: null }], cwd: dir } }
+    if (specs.length === 0) return { seen: true, gate: { kind: 'git', targets: [{ src: 'HEAD', dst: null, implicit: true }], cwd: dir } }
     const targets = specs.map((spec): Target => {
       const r = spec.replace(/^\+/, '')
       const c = r.indexOf(':')
       const src = c < 0 ? r : r.slice(0, c)
       const dst = c < 0 ? r : r.slice(c + 1)
-      return { src: del || src === '' ? null : src, dst: dst === 'HEAD' || dst === '@' ? null : dst.replace(/^refs\/heads\//, '') }
+      return { src: del || src === '' ? null : src, dst: dst === 'HEAD' || dst === '@' ? null : dst.replace(/^(?:refs\/)?heads\//, '') }
     })
     return { seen: true, gate: { kind: 'git', targets, cwd: dir } }
   }
@@ -532,7 +542,7 @@ function echoed(words: string[]): string | undefined {
 // Słowa, które zmieniają katalog albo zmienne w sposób, którego model nie śledzi (gdziekolwiek w poleceniu).
 const OUTSIDE_WORDS = new Set([
   'for', 'while', 'until', 'case', 'select', 'function', 'if', 'then', 'elif', 'else', 'do', 'done', 'fi', 'esac', 'coproc', '{', '}',
-  'eval', 'source', 'command', 'builtin', 'exec', 'declare', 'typeset', 'local', 'read', 'readonly', 'unset', 'let', 'mapfile',
+  'time', '!', 'eval', 'source', 'command', 'builtin', 'exec', 'declare', 'typeset', 'local', 'read', 'readonly', 'unset', 'let', 'mapfile',
   'readarray', 'getopts', 'alias', 'unalias', 'trap', 'chdir', 'pushd', 'popd', 'push-location', 'pop-location',
   'set-variable', 'new-variable', 'remove-variable', 'clear-variable', 'sv', 'nv', 'invoke-expression', 'iex', '+=', '-=',
 ])
@@ -618,6 +628,25 @@ function skeletonOf(cmd: string, ps: boolean): string | undefined {
 
 const refsOf = (w: string, ps: boolean) => [...w.matchAll(/\$\{?[#!]?(\w+)/g)].map(m => (ps ? (m[1] ?? '').toLowerCase() : (m[1] ?? '')))
 
+const READ_ONLY_GIT = new Set(['status', 'log', 'diff', 'show', 'rev-parse', 'fetch'])
+
+// Git, który niczego nie zmienia w gałęziach ani w HEAD.
+function readOnlyGit(w: string[]): boolean {
+  const head = headIndex(w)
+  if (!isExe(w[head], 'git')) return false
+  const a = gitArgs(w.slice(head))?.args ?? []
+  return READ_ONLY_GIT.has(a[0] ?? '') || (a[0] === 'branch' && a.length === 2 && a[1] === '--show-current') || (a[0] === 'remote' && a.length === 2 && a[1] === '-v')
+}
+
+// Kawałek z git push/merge albo gh pr merge: ten, który bramka sprawdza.
+function isGateSeg(w: string[]): boolean {
+  const head = headIndex(w)
+  if (isExe(w[head], 'gh')) return w[head + 1] === 'pr' && w[head + 2] === 'merge'
+  if (!isExe(w[head], 'git')) return false
+  const sub = gitArgs(w.slice(head))?.args[0]
+  return sub === 'push' || sub === 'merge'
+}
+
 // Whitelist: model to kawałki rozdzielone `;`, nową linią i `&&`, z których każdy to (a) przypisanie zmiennej,
 // (b) `cd|Set-Location|sl <ścieżka>`, (c) polecenie git/gh, (d) inne polecenie bez słów zmieniających katalog
 // czy zmienne. Cokolwiek innego w poleceniu (pętle, `if`, `{`, `(`, `|`, `||`, `&`, `eval`, `pushd`, `declare`,
@@ -634,10 +663,16 @@ function modelOf(cmd: string, segs: Seg[], ps: boolean): { outside: boolean; ass
     /&/.test(skeleton.replace(/&&/g, '').replace(/[0-9]*[<>]&[0-9-]*|&>>?/g, ''))
   const counts = new Map<string, number>()
   const key = (n: string) => (ps ? n.toLowerCase() : n)
-  for (const s of segs) {
+  // Bramka sprawdza gałąź i sha przed poleceniem, więc wszystko, co stoi przed push/merge i mogłoby je zmienić
+  // (commit, checkout, reset…), wyprowadza polecenie poza model. Przed nim wolno: `cd`, przypisanie, git tylko do odczytu.
+  const lastGate = segs.map(s => isGateSeg(s.words)).lastIndexOf(true)
+  for (const [k, s] of segs.entries()) {
     const w = s.words
     const head = headIndex(w)
     const assigned = assignOf(w, ps)
+    if (k < lastGate && !assigned && !isCd(w[0], ps) && !readOnlyGit(w)) outside = true
+    // `cd` w środku kawałka (`X=1 cd d`, `$x = cd d`, `$null = Set-Location d`) działa w innym kontekście.
+    if (w.slice(1).some(x => CD_WORDS.includes(x.toLowerCase()))) outside = true
     if (w.some(x => OUTSIDE_WORDS.has(x.toLowerCase()) || OUTSIDE_ASSIGN.test(x) || OUTSIDE_GIT.test(x))) outside = true
     if (w.some(x => REBIND.test(x))) outside = true
     if (ps && w.some((x, i) => /^\$env:\w+$/i.test(x) && w[i + 1] === '=')) outside = true
@@ -653,7 +688,9 @@ function modelOf(cmd: string, segs: Seg[], ps: boolean): { outside: boolean; ass
       }
       continue
     }
-    const cd = CD_WORDS.includes((w[0] ?? '').toLowerCase())
+    // `CD`, `sl` w bashu to nieznane polecenie, ale przy `cd` w innej wielkości liter nie zgadujemy.
+    if (!ps && CD_WORDS.includes((w[0] ?? '').toLowerCase()) && w[0] !== 'cd') outside = true
+    const cd = isCd(w[0], ps)
     if (cd) {
       if (w.length > 2 || (w[1] ?? '').startsWith('-')) outside = true
       continue
@@ -716,7 +753,7 @@ function analyze(cmd: string, ps: boolean, depth = 0): Analysis {
       if (chainCds >= 2) cwd = CONDITIONAL_CD
       chainCds = 0
     }
-    const prevStable = prev !== undefined && (CD_WORDS.includes((prev.words[0] ?? '').toLowerCase()) || assignOf(prev.words, ps) !== undefined)
+    const prevStable = prev !== undefined && (isCd(prev.words[0], ps) || assignOf(prev.words, ps) !== undefined)
     skippable[k] = prev !== undefined && prev.sep === '&&' && (skippable[k - 1] === true || !prevStable)
     const assigned = assignOf(s.words, ps)
     if (assigned) {
@@ -727,7 +764,7 @@ function analyze(cmd: string, ps: boolean, depth = 0): Analysis {
       continue
     }
     const words = s.words.map(expand)
-    if (CD_WORDS.includes((words[0] ?? '').toLowerCase())) {
+    if (isCd(words[0], ps)) {
       chainCds++
       cwd = skippable[k] ? CONDITIONAL_CD : joinDir(cwd, words[1] ?? '~')
       continue
@@ -760,7 +797,7 @@ function analyze(cmd: string, ps: boolean, depth = 0): Analysis {
 
 // Bez odczytu repo: czy push/merge może iść do main (gałąź nieznana = może).
 function mayHitMain(g: Gate): boolean {
-  return g.kind === 'pr' || g.targets.some(t => t.dst === null || MAIN.has(t.dst))
+  return g.kind === 'pr' || g.targets.some(t => t.dst === null || isMain(t.dst))
 }
 
 const PR_VALUE_FLAGS = new Set(['-R', '--repo', '-t', '--subject', '-b', '--body', '-F', '--body-file', '-A', '--author-email', '--match-head-commit'])
@@ -793,6 +830,18 @@ async function prInfo($: EngineInterface, args: string[], cwd?: string): Promise
   }
 }
 
+// `git push` bez refspecu idzie według push.default i remote.*.push, które mogą wskazywać main bez względu
+// na bieżącą gałąź. Błąd odczytu konfiguracji = ryzyko.
+async function pushConfigRisky($: EngineInterface, cwd?: string): Promise<boolean> {
+  const readable = (o: { exitCode: number } | null) => o !== null && (o.exitCode === 0 || o.exitCode === 1)
+  const rp = await run($, ['git', 'config', '--get-regexp', '^remote\\..*\\.push$'], cwd)
+  if (!rp || !readable(rp)) return true
+  if (rp.exitCode === 0 && rp.stdout.trim() !== '') return true
+  const pd = await run($, ['git', 'config', '--get', 'push.default'], cwd)
+  if (!pd || !readable(pd)) return true
+  return /^(matching|upstream|tracking)$/i.test(pd.stdout.trim())
+}
+
 async function revParse($: EngineInterface, ref: string, cwd?: string): Promise<string | undefined> {
   const out = await run($, ['git', 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`], cwd)
   return out?.exitCode === 0 ? out.stdout.trim() || undefined : undefined
@@ -811,8 +860,16 @@ const DENY_REVIEW = (cmd: string, ref: string, sha: string | undefined, verdict:
   `sztab: blocked \`${cmd.slice(0, 80)}\`. Merging or pushing into main/master needs a passed review, and ` +
   (sha
     ? `commit ${sha.slice(0, 12)} (${ref}) has ${verdict ? `verdict "${verdict}"` : 'no review verdict'}.`
-    : `the commit to be merged (${ref}) could not be resolved in ${dir ? `repository ${dir}` : 'the session repository'}.`) +
+    : `the commit to be merged (${ref}) could not be resolved in ${dir ? `repository ${dir}` : 'the session repository'}.` +
+      (dir && UNRESOLVED.test(dir)
+        ? ' The command has steps before the push/merge or constructs the gate cannot follow; run the push/merge as its own command (`git -C <literal path> push …`).'
+        : '')) +
   ` To unblock: spawn sztab:recenzent on ${sha ? `commit ${sha}` : 'this diff'}; its last line \`verdict: ok sha: ${sha ?? '<sha>'}\` unblocks it.` +
+  UNBLOCK_OWNER
+
+const DENY_PUSHCFG = (cmd: string, dir?: string) =>
+  `sztab: blocked \`${cmd.slice(0, 80)}\`. A push without a refspec follows push.default and remote.*.push in ${dir ?? 'the session repository'}, ` +
+  'which may reach main/master (or the config could not be read). Name the branch: `git push origin <branch>`.' +
   UNBLOCK_OWNER
 
 const DENY_PR = (cmd: string) =>
@@ -867,19 +924,23 @@ async function judge($: EngineInterface, cmd: string, ps: boolean, agentId?: str
       if (g.kind === 'pr') {
         const pr = await prInfo($, g.args, g.cwd)
         if (!pr) reviewDenied = DENY_PR(cmd)
-        else if (MAIN.has(pr.base)) reviewDenied = check('PR head', pr.head, g.cwd)
+        else if (isMain(pr.base)) reviewDenied = check('PR head', pr.head, g.cwd)
       } else {
         for (const t of g.targets) {
-          if (t.dst !== null && !MAIN.has(t.dst)) continue
+          if (t.dst !== null && !isMain(t.dst)) continue
           // Katalogu z `cd`/`-C` nie da się ustalić (nieznana zmienna): nie wiadomo, które repo ani jaka gałąź = odmowa.
           const dir = g.cwd
           if (dir !== undefined && UNRESOLVED.test(dir)) {
             reviewDenied = check(t.src ?? 'all/deleted refs', undefined, dir)
             break
           }
+          if (t.implicit && (await pushConfigRisky($, dir))) {
+            reviewDenied = DENY_PUSHCFG(cmd, dir)
+            break
+          }
           if (t.dst === null) {
             const b = await branchOf(dir)
-            if (b !== '' && !MAIN.has(b)) continue
+            if (b !== '' && !isMain(b)) continue
           }
           reviewDenied = check(t.src ?? 'all/deleted refs', t.src === null ? undefined : await revParse($, t.src, dir), dir)
           if (reviewDenied) break

@@ -333,7 +333,7 @@ test('cd i git -C z katalogiem domowym: ~, $HOME, ${HOME}, $env:USERPROFILE, %US
   }
   await started($, on, run)
   // Polecenie, które bramka odrzucała: cd ~/repo, heredoc do pythona, commit i push na gałęzi feature.
-  const failing = "cd ~/repo && python - <<'EOF'\nimport pathlib\nprint(pathlib.Path('x').read_text())\nEOF\ngit commit -am \"fix: x\" && git push"
+  const failing = "cd ~/repo && python - <<'EOF'\nimport pathlib\nprint(pathlib.Path('x').read_text())\nEOF\ngit commit -am \"fix: x\" && git push origin HEAD:chore/x"
   expect(await gated($, failing)).toBe(false)
   expect(await gated($, 'cd $HOME/repo && git push')).toBe(false)
   expect(await gated($, 'cd "${HOME}/repo" && git push')).toBe(false)
@@ -534,7 +534,7 @@ test('bramka: cd warunkowy (||, |, nawiasy, && po poleceniu innym niż cd) = kat
   await started($, on, infraRun, { 'przeglady:*': { [INFRA]: 'ok' } })
   // Kontrola: pewne łańcuchy.
   expect(await gated($, 'cd /c/Users/u/nope && cd /c/Users/u/infra && git push origin main')).toBe(false)
-  expect(await gated($, 'false; cd /c/Users/u/infra && git push origin main')).toBe(false)
+  expect(await gated($, 'git status; cd /c/Users/u/infra && git push origin main')).toBe(false)
   for (const command of [
     'cd /c/Users/u/nope || cd /c/Users/u/infra; git push origin main',
     'cd /c/Users/u/infra || cd /c/Users/u/nope; git push origin main',
@@ -562,7 +562,7 @@ test('bramka: whitelist modelu (przypisanie, cd, git, inne); wszystko poza nim =
     `cd ${D} && git push origin main`,
     `cd ${N} && cd ${D} && git push origin main`,
     `cd ${N}; cd ${D}; git push origin main`,
-    `git commit -m "$(date)" && git -C ${D} push origin main`,
+    `git status && git -C ${D} push origin main`,
     `git -C ${D} push origin main 2>&1`,
   ]) {
     expect(await gated($, command)).toBe(false)
@@ -607,4 +607,92 @@ test('bramka: whitelist modelu (przypisanie, cd, git, inne); wszystko poza nim =
   }
   // Jawny cel inny niż main przechodzi także poza modelem.
   expect(await gated($, `cd ${D} || exit; git push origin feature/x`)).toBe(false)
+})
+
+test('bramka: kroki przed push/merge, cd w środku kawałka, odmiany celu main i push bez refspecu', async ($, on) => {
+  // Repo `infra` z bramką: werdykt ok dla jego sha, więc odmowa znaczy, że polecenie wyszło poza model.
+  await started($, on, infraRun, { 'przeglady:*': { [INFRA]: 'ok' } })
+  const D = '/c/Users/u/infra'
+  for (const command of [
+    `git status; git log -1; git branch --show-current; git remote -v; git rev-parse HEAD; git fetch; git -C ${D} push origin main`,
+    `cd ${D} && git diff && git push origin main`,
+  ]) {
+    expect(await gated($, command)).toBe(false)
+  }
+  for (const command of [
+    `git -C ${D} commit -m x && git -C ${D} push origin main`,
+    `git checkout main; git -C ${D} push origin main`,
+    `git switch -c x && git -C ${D} push origin main`,
+    `git reset --hard HEAD~1; git -C ${D} push origin main`,
+    `git -C ${D} branch -f main HEAD; git -C ${D} push origin main`,
+    `echo hi; git -C ${D} push origin main`,
+    `git -C ${D} push origin feature/x; git -C ${D} push origin main`,
+    `X=1 cd ${D}; git push origin main`,
+    `CD ${D}; git push origin main`,
+    `time cd ${D}; git push origin main`,
+    `! cd ${D}; git push origin main`,
+  ]) {
+    const r = await $.tool.call({ tool: 'Bash', command } as never)
+    expect([command, blocked(r)]).toEqual([command, true])
+  }
+  const own = await $.tool.call({ tool: 'Bash', command: `echo hi; git -C ${D} push origin main` } as never)
+  expect(String(own.deny ?? own.text)).toContain('as its own command')
+  for (const command of [
+    "$null = Set-Location C:/Users/u/infra; git push origin main",
+    "$x = cd C:/Users/u/infra; git push origin main",
+  ]) {
+    expect(await gated($, command, 'PowerShell')).toBe(true)
+  }
+  // PowerShell: CD to alias bez względu na wielkość liter, więc zwykły model.
+  expect(await gated($, 'CD C:/Users/u/infra; git push origin main', 'PowerShell')).toBe(false)
+  // -c z konfiguracją pushu, --all, --mirror: main-capable bez względu na refspec.
+  for (const command of [
+    `git -c push.default=matching -C ${D} push origin feature/x`,
+    `git -c push.default=current -C ${D} push`,
+    `git -c push.default=upstream -C ${D} push`,
+    `git -c remote.origin.push=HEAD:main -C ${D} push origin`,
+    `git -C ${D} push --all`,
+    `git -C ${D} push --mirror`,
+  ]) {
+    expect([command, await gated($, command)]).toEqual([command, true])
+  }
+})
+
+test('bramka: warianty celu main (heads/main, refs/heads/x/main, master) bez werdyktu', async ($, on) => {
+  await started($, on, infraRun)
+  const D = '/c/Users/u/infra'
+  for (const dst of ['heads/main', 'refs/heads/MAIN', 'refs/heads/main', 'refs/heads/release/main', 'refs/heads/master', 'refs/heads/x/master']) {
+    const r = await $.tool.call({ tool: 'Bash', command: `git -C ${D} push origin main:${dst}` } as never)
+    expect(String(r.deny ?? r.text)).toContain(`verdict: ok sha: ${INFRA}`)
+  }
+  expect(await gated($, `git -C ${D} push origin main:refs/heads/dev`)).toBe(false)
+})
+
+test('bramka: push bez refspecu czyta push.default i remote.*.push w repozytorium docelowym', async ($, on) => {
+  let mode: 'none' | 'remote' | 'matching' | 'simple' | 'upstream' | 'error' = 'none'
+  const R = 'C:/Users/u/feat'
+  await started($, on, (argv, init) => {
+    if (init?.cwd !== R) return init?.cwd === undefined ? git(argv, init) : { exitCode: 128, stdout: '' }
+    const cmd = argv.join(' ')
+    if (cmd === 'git branch --show-current') return { exitCode: 0, stdout: 'feature\n' }
+    if (cmd.startsWith('git config --get-regexp')) {
+      return mode === 'error' ? { exitCode: 128, stdout: '' } : mode === 'remote' ? { exitCode: 0, stdout: 'remote.origin.push refs/heads/*:refs/heads/main\n' } : { exitCode: 1, stdout: '' }
+    }
+    if (cmd === 'git config --get push.default') {
+      return mode === 'matching' || mode === 'upstream' || mode === 'simple' ? { exitCode: 0, stdout: `${mode}\n` } : { exitCode: 1, stdout: '' }
+    }
+    return { exitCode: 1, stdout: '' }
+  })
+  const push = 'git -C /c/Users/u/feat push'
+  expect(await gated($, push)).toBe(false)
+  mode = 'simple'
+  expect(await gated($, push)).toBe(false)
+  for (const m of ['remote', 'matching', 'upstream', 'error'] as const) {
+    mode = m
+    const r = await $.tool.call({ tool: 'Bash', command: push } as never)
+    expect([m, blocked(r)]).toEqual([m, true])
+    expect(String(r.deny ?? r.text)).toContain('Name the branch')
+    // Jawny refspec na gałąź inną niż main nie czyta konfiguracji.
+    expect(await gated($, `${push} origin feature`)).toBe(false)
+  }
 })

@@ -120,7 +120,10 @@ Jeśli projekt ma własnego recenzenta, jego odpowiedź też musi kończyć się
 
 Bramka to zabezpieczenie przed pomyłką, nie granica bezpieczeństwa: agent z dostępem do Basha zawsze
 może ją obejść. Łapie realne ścieżki (zwykłe polecenia, `bash -c`, heredoc, potok do powłoki), nie
-złośliwe obejścia.
+złośliwe obejścia. Znane ryzyko resztkowe: aliasy i funkcje powłoki (`alias git=…`, `cd() {…}`) oraz
+konfiguracja poza poleceniem (hooki gita, `core.hooksPath`) zmieniają skutek polecenia, a bramka ich nie widzi.
+Katalog docelowy rozstrzyga tylko w wąskim modelu (`cd`, przypisania, `git -C`, git do odczytu przed
+push/merge); poza nim odmawia i każe uruchomić push/merge osobnym poleceniem.
 
 Polecenia Bash i PowerShell, także subagentów:
 
