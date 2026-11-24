@@ -353,7 +353,8 @@ test('katalog z cd nie do ustalenia: odmowa dla push na main i bez refspecu', as
   })
   // Bez refspecu też: nie wiadomo, które repo, więc odmowa (jawny cel inny niż main przechodzi).
   expect(await gated($, 'cd $REPO && git push')).toBe(true)
-  expect(await gated($, 'cd $REPO && git push origin feature/x')).toBe(false)
+  expect(await gated($, 'cd $REPO && git push origin feature/x')).toBe(true)
+  expect(await gated($, 'cd $REPO && git push origin HEAD:feature/x')).toBe(false)
   const main = await $.tool.call({ tool: 'Bash', command: 'cd $REPO && git push origin HEAD:main' } as never)
   expect(String(main.deny ?? main.text)).toContain('could not be resolved')
   // Zwykły, ale nieistniejący katalog dalej = gałąź nieznana.
@@ -388,7 +389,9 @@ test('heredoc i potok do powłoki, ssh czy interpretera są rozbierane', async (
   expect(await gated($, "cat <<'EOF' > notes.md\ngit push origin main\nEOF")).toBe(false)
   expect(await gated($, "ssh apps <<'EOF'\ndocker ps\nEOF")).toBe(false)
   expect(await gated($, "echo 'git push origin main' | grep push")).toBe(false)
-  expect(await gated($, "echo 'git push origin feature/x' | sh")).toBe(false)
+  expect(await gated($, "echo 'git push origin HEAD:feature/x' | sh")).toBe(false)
+  // Cel bez dwukropka wymaga odczytu konfiguracji w znanym katalogu, a potok go odbiera.
+  expect(await gated($, "echo 'git push origin feature/x' | sh")).toBe(true)
 })
 
 test('subagent: bez cwd pracuje w katalogu sesji; cd liczy się tylko w swoim poleceniu', async ($, on) => {
@@ -565,7 +568,7 @@ test('bramka: whitelist modelu (przypisanie, cd, git, inne); wszystko poza nim =
     `git status && git -C ${D} push origin main`,
     `git -C ${D} push origin main 2>&1`,
   ]) {
-    expect(await gated($, command)).toBe(false)
+    expect([command, await gated($, command)]).toEqual([command, false])
   }
   for (const command of [
     `R=${N}; for R in ${D}; do git -C $R push origin main; done`,
@@ -606,7 +609,7 @@ test('bramka: whitelist modelu (przypisanie, cd, git, inne); wszystko poza nim =
     expect(await gated($, command, 'PowerShell')).toBe(true)
   }
   // Jawny cel inny niż main przechodzi także poza modelem.
-  expect(await gated($, `cd ${D} || exit; git push origin feature/x`)).toBe(false)
+  expect(await gated($, `cd ${D} || exit; git push origin HEAD:feature/x`)).toBe(false)
 })
 
 test('bramka: kroki przed push/merge, cd w środku kawałka, odmiany celu main i push bez refspecu', async ($, on) => {
@@ -614,10 +617,10 @@ test('bramka: kroki przed push/merge, cd w środku kawałka, odmiany celu main i
   await started($, on, infraRun, { 'przeglady:*': { [INFRA]: 'ok' } })
   const D = '/c/Users/u/infra'
   for (const command of [
-    `git status; git log -1; git branch --show-current; git remote -v; git rev-parse HEAD; git fetch; git -C ${D} push origin main`,
+    `git status; git log -1; git branch --show-current; git remote -v; git rev-parse HEAD; git -C ${D} push origin main`,
     `cd ${D} && git diff && git push origin main`,
   ]) {
-    expect(await gated($, command)).toBe(false)
+    expect([command, await gated($, command)]).toEqual([command, false])
   }
   for (const command of [
     `git -C ${D} commit -m x && git -C ${D} push origin main`,
@@ -685,6 +688,7 @@ test('bramka: push bez refspecu czyta push.default i remote.*.push w repozytoriu
   })
   const push = 'git -C /c/Users/u/feat push'
   expect(await gated($, push)).toBe(false)
+  expect(await gated($, `${push} origin feature`)).toBe(false)
   mode = 'simple'
   expect(await gated($, push)).toBe(false)
   for (const m of ['remote', 'matching', 'upstream', 'error'] as const) {
@@ -692,7 +696,50 @@ test('bramka: push bez refspecu czyta push.default i remote.*.push w repozytoriu
     const r = await $.tool.call({ tool: 'Bash', command: push } as never)
     expect([m, blocked(r)]).toEqual([m, true])
     expect(String(r.deny ?? r.text)).toContain('Name the branch')
-    // Jawny refspec na gałąź inną niż main nie czyta konfiguracji.
-    expect(await gated($, `${push} origin feature`)).toBe(false)
+    // Cel bez dwukropka też idzie przez remote.*.push; pełny refspec na gałąź inną niż main nie czyta konfiguracji.
+    expect(await gated($, `${push} origin feature`)).toBe(true)
+    expect(await gated($, `${push} origin feature:feature`)).toBe(false)
   }
+})
+
+test('bramka: fetch, --output, -c przed celem, wzorzec w refspecu; add/commit przed pushem na gałąź bieżącą', async ($, on) => {
+  await started($, on, infraRun, { 'przeglady:*': { [INFRA]: 'ok' } })
+  const D = '/c/Users/u/infra'
+  for (const command of [
+    `git fetch origin x:main; git -C ${D} push origin main`,
+    `git fetch; git -C ${D} push origin main`,
+    `git log --output=/tmp/x; git -C ${D} push origin main`,
+    `git diff --output=f; git -C ${D} push origin main`,
+    `git -c core.fsmonitor=/tmp/x status; git -C ${D} push origin main`,
+    `git -c core.fsmonitor=/tmp/x commit -m x && git -C ${D} push origin main`,
+    `git -C ${D} push origin 'refs/heads/*:refs/heads/*'`,
+    `git -C ${D} push origin '+refs/heads/*:refs/heads/*'`,
+    `git -C ${D} push origin main:refs/heads/*`,
+  ]) {
+    const r = await $.tool.call({ tool: 'Bash', command } as never)
+    expect([command, blocked(r)]).toEqual([command, true])
+  }
+})
+
+test('bramka: add/commit przed pushem na gałąź bieżącą', async ($, on) => {
+  await started($, on)
+  // add/commit przed pushem na bieżącą gałąź: katalog ../other jest na gałęzi feature, sesja na main.
+  for (const command of [
+    'cd ../other && git add -A && git commit -m x && git push',
+    'cd ../other && git commit -m x && git push -u origin HEAD',
+    'cd ../other && git add -A; git status; git push',
+  ]) {
+    expect([command, await gated($, command)]).toEqual([command, false])
+  }
+  for (const command of [
+    'cd ../other && git commit --amend --no-edit && git push',
+    'cd ../other && git -c core.hooksPath=/x commit -m x && git push',
+    'cd ../other && git commit -m x && git reset --hard && git push',
+    'cd ../other && git commit -m x && git push origin HEAD:main',
+  ]) {
+    expect([command, await gated($, command)]).toEqual([command, true])
+  }
+  // Na main commit z tego samego polecenia nie jest widoczny dla bramki: odmowa.
+  const main = await $.tool.call({ tool: 'Bash', command: 'git add -A && git commit -m x && git push' } as never)
+  expect(String(main.deny ?? main.text)).toContain('commits and pushes')
 })
