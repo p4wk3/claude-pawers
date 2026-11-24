@@ -686,18 +686,20 @@ function modelOf(cmd: string, segs: Seg[], ps: boolean): { outside: boolean; mut
   // Bramka sprawdza gałąź i sha przed poleceniem, więc wszystko, co stoi przed push/merge i mogłoby je zmienić
   // (commit, checkout, reset…), wyprowadza polecenie poza model. Przed nim wolno: `cd`, przypisanie, git tylko do odczytu.
   const lastGate = segs.map(s => isGateSeg(s.words)).lastIndexOf(true)
-  // `git add`/`git commit` przed push, który idzie na bieżącą gałąź (cel bez nazwy): gałąź się nie zmienia,
-  // a commit zrobiony w tym samym poleceniu bramka widzi dopiero po fakcie, więc na main taki push jest odmowa (`mutates`).
+  // `git add`/`git commit` przed push na bieżącą gałąź (cel bez nazwy) albo na nazwaną gałąź inną niż main: gałąź się
+  // nie zmienia, a commit z tego samego polecenia bramka widzi dopiero po fakcie, więc push na bieżącą gałąź będącą
+  // main jest odmową (`mutates`).
   const lastSub = lastGate >= 0 ? gitArgs(segs[lastGate]?.words ?? [])?.args[0] : undefined
   const lastGateOf = lastGate >= 0 ? gateOf(segs[lastGate]?.words ?? [], undefined).gate : undefined
-  const stagingOk = lastSub === 'push' && lastGateOf?.kind === 'git' && lastGateOf.targets.every(t => t.dst === null)
+  const stagingOk = lastSub === 'push' && lastGateOf?.kind === 'git' && lastGateOf.targets.every(t => t.dst === null || (!isMain(t.dst) && !t.dst.includes('*')))
+  const hasCurrent = lastGateOf?.kind === 'git' && lastGateOf.targets.some(t => t.dst === null)
   let mutates = false
   for (const [k, s] of segs.entries()) {
     const w = s.words
     const head = headIndex(w)
     const assigned = assignOf(w, ps)
     const staging = stagingGit(w)
-    if (k < lastGate && staging === 'commit' && stagingOk) mutates = true
+    if (k < lastGate && staging === 'commit' && stagingOk && hasCurrent) mutates = true
     if (k < lastGate && !assigned && !isCd(w[0], ps) && !readOnlyGit(w) && !(staging && stagingOk)) outside = true
     // `cd` w środku kawałka (`X=1 cd d`, `$x = cd d`, `$null = Set-Location d`) działa w innym kontekście.
     if (w.slice(1).some(x => CD_WORDS.includes(x.toLowerCase()))) outside = true

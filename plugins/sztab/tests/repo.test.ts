@@ -728,6 +728,10 @@ test('bramka: add/commit przed pushem na gałąź bieżącą', async ($, on) => 
     'cd ../other && git add -A && git commit -m x && git push',
     'cd ../other && git commit -m x && git push -u origin HEAD',
     'cd ../other && git add -A; git status; git push',
+    'cd ../other && git commit -m x && git push -u origin feature/x',
+    'cd ../other && git add -A && git commit -m x && git push -u origin feature/x',
+    'cd ../other && git commit -m x && git push origin feature',
+    'git commit -m x && git push -u origin feature/x',
   ]) {
     expect([command, await gated($, command)]).toEqual([command, false])
   }
