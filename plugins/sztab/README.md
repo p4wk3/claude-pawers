@@ -98,6 +98,10 @@ Pasek: `MVP fryz.app  ███░░░░░░░ 3/10  ·  za 18 dni  │  p
 z `"mvp": true`, które nie są zrobione: najpierw w toku, potem do zrobienia, w każdej grupie według
 priorytetu (1 = pilne). Termin żółknie na tydzień przed, czerwienieje na 3 dni przed.
 
+Opcjonalne pole `"wdrozenie": { "z": "development", "na": "origin/main" }` dokłada do paska
+`czeka na wdrożenie: 3` — liczbę zmian (commitów bez scaleń) w gałęzi `z`, których nie ma jeszcze
+w `na` — albo `wszystko wdrożone`. Domyślnie `z` = `HEAD`, `na` = `origin/main`.
+
 Stany: `do-zrobienia`, `w-toku`, `do-sprawdzenia`, `zrobione`. Orkiestrator prowadzi plik skryptem
 `skills/sztab/zadanie.mjs`. Dodaj `.claude/zadania.json` i `.claude/sztab-koszty.json` do `.gitignore`
 projektu.

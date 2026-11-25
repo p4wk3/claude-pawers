@@ -57,6 +57,8 @@ function za(days: number): string {
 
 type PlikZadan = {
   cel?: { nazwa?: string; termin?: string }
+  // Licznik „czeka na wdrożenie”: commity w gałęzi `z`, których nie ma w `na` (np. development vs origin/main).
+  wdrozenie?: { z?: string; na?: string }
   zadania?: { id: string; tytul: string; stan: string; mvp?: boolean; priorytet?: number }[]
 }
 
@@ -228,6 +230,21 @@ function flushActivity($: EngineInterface): void {
   }
 }
 
+// Liczba zmian (commitów bez scaleń) w `z`, których nie ma w `na`. Błąd gita = brak licznika.
+async function czekaNaWdrozenie($: EngineInterface, w: { z?: string; na?: string }): Promise<number | undefined> {
+  const z = w.z ?? 'HEAD'
+  const na = w.na ?? 'origin/main'
+  // Nazwy gałęzi z pliku, nie opcje gita.
+  if (z.startsWith('-') || na.startsWith('-')) return undefined
+  try {
+    const r = await $.process.run(['git', 'rev-list', '--count', '--no-merges', `${na}..${z}`], { timeoutMs: 10000 })
+    const n = Number.parseInt(r.stdout.trim(), 10)
+    return r.exitCode === 0 && Number.isFinite(n) ? n : undefined
+  } catch {
+    return undefined
+  }
+}
+
 async function refreshZadania($: EngineInterface): Promise<void> {
   let snap: ZadaniaSnap | null = null
   try {
@@ -242,6 +259,7 @@ async function refreshZadania($: EngineInterface): Promise<void> {
       zrobione: count('zrobione'),
       cel: celOf(z),
     }
+    if (snap.cel && z.wdrozenie) snap.cel.czeka = await czekaNaWdrozenie($, z.wdrozenie)
   } catch {
     // brak albo zepsuty plik: sekcja zadań się nie pokazuje
   }
@@ -489,6 +507,11 @@ export const register: Register = on => {
           </Text>
         )}
         {days !== undefined && !isDone && cel.wszystkie > 0 && <Text color={termColor}>{`  ·  ${za(days)}`}</Text>}
+        {cel.czeka !== undefined && (
+          <Text color={cel.czeka > 0 ? 'warning' : undefined} dimColor={cel.czeka === 0}>
+            {cel.czeka > 0 ? `  ·  czeka na wdrożenie: ${cel.czeka}` : '  ·  wszystko wdrożone'}
+          </Text>
+        )}
         {shown.length > 0 && (
           <Text wrap="truncate-end">
             <Text dimColor>{'  │  pilne: '}</Text>
