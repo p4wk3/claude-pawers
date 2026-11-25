@@ -94,9 +94,10 @@ Z celem MVP plik wygląda tak (pole `cel` włącza pasek nad promptem):
 }
 ```
 
-Pasek: `MVP fryz.app  ███░░░░░░░ 3/10  ·  za 18 dni  │  pilne: MNG-140 Lista wizyt · …`. Pilne to zadania
-z `"mvp": true`, które nie są zrobione: najpierw w toku, potem do zrobienia, w każdej grupie według
-priorytetu (1 = pilne). Termin żółknie na tydzień przed, czerwienieje na 3 dni przed.
+Pasek: `MVP fryz.app  ███░░░░░░░ 3/10  ·  za 18 dni`. Listy pilnych zadań w pasku nie ma (brak miejsca);
+pilne to zadania z `"mvp": true`, które nie są zrobione — orkiestrator czyta je z pliku zadań: najpierw
+w toku, potem do zrobienia, w każdej grupie według priorytetu (1 = pilne). Termin żółknie na tydzień
+przed, czerwienieje na 3 dni przed.
 
 Opcjonalne pole `"wdrozenie": { "z": "development", "na": "origin/main" }` dokłada do paska
 `czeka na wdrożenie: 3` — liczbę zmian (commitów bez scaleń) w gałęzi `z`, których nie ma jeszcze

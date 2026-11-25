@@ -487,7 +487,6 @@ export const register: Register = on => {
     const days = end === undefined ? undefined : end - today
     const termColor = days === undefined ? undefined : days <= 3 ? 'error' : days <= 7 ? 'warning' : undefined
     const isDone = cel.wszystkie > 0 && cel.pilne.length === 0
-    const shown = cel.pilne.slice(0, 3)
     const { Box, Text } = $.ui.resolve(e)
 
     return (
@@ -512,19 +511,7 @@ export const register: Register = on => {
             {cel.czeka > 0 ? `  ·  czeka na wdrożenie: ${cel.czeka}` : '  ·  wszystko wdrożone'}
           </Text>
         )}
-        {shown.length > 0 && (
-          <Text wrap="truncate-end">
-            <Text dimColor>{'  │  pilne: '}</Text>
-            {shown.map((z, i) => (
-              <Text key={z.id}>
-                {i > 0 ? <Text dimColor>{' · '}</Text> : null}
-                <Text bold={z.stan === 'w-toku'}>{z.id}</Text>
-                <Text dimColor>{` ${cut(z.tytul, 28)}`}</Text>
-              </Text>
-            ))}
-            {cel.pilne.length > shown.length && <Text dimColor>{`  +${cel.pilne.length - shown.length}`}</Text>}
-          </Text>
-        )}
+        {/* Lista pilnych zadań nie mieści się w pasku: czyta ją Claude z pliku zadań, nie właściciel. */}
       </Box>
     )
   })
