@@ -261,7 +261,7 @@ rozmawiasz z właścicielem.
 5. CI zielone → merge (jeśli projekt na to pozwala bez właściciela). Komentarz w trackerze: co zmienione
    i jak przetestowane, prostym językiem; zadanie do Review albo Done. Na końcu komentarza linia kosztu
    z `.claude/sztab-koszty.json` (panel sumuje tam agentów per zadanie) i z globalnego logu po
-   `node <katalog skilla>/szacuj.mjs --zamknij MNG-140` (zamyka zadanie do kalibracji szacunków):
+   `node <katalog skilla>/szacuj.mjs --zamknij MNG-140 --projekt <nazwa repo>` (zamyka zadanie do kalibracji szacunków):
    `Koszt: 9 promptów · ≈$4.10, szacunek $3.00 (×1.4) · Agenci: 14 · 38 min · ≈$1.20
    (cennik API)`. Koszt to szacunek pracy subagentów, bez Twojej własnej rozmowy.
 6. Właściciel dostaje 2–4 zdania: co zrobione, co wymaga jego decyzji. Bez surowych raportów agentów.

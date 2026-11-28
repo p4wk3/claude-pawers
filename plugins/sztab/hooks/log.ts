@@ -127,13 +127,16 @@ async function wczytajZadania($: EngineInterface, repo: string): Promise<Zadanie
   return []
 }
 
-// Do którego zadania należy tura: id z promptu (znane z pliku albo jedyne w prompcie), inaczej
-// jedyne zadanie w toku; kilka w toku bez wskazania = lista, bez zgadywania.
+// Do którego zadania należy tura: id z promptu znane z pliku zadań albo z prefiksem trackera z tego
+// pliku (MNG-200 przy zadaniach MNG-…), inaczej jedyne zadanie w toku; kilka w toku = lista.
+// Id spoza pliku z obcym prefiksem (UTF-8, ISO-8601, SHA-256) nigdy nie są zadaniem.
 export function zadanieTury(ids: string[], zadania: Zadanie[]): Pick<WpisLogu, 'zadanie' | 'zadania'> {
   const znane = new Set(zadania.map(z => z.id))
+  const prefiksy = new Set(zadania.map(z => z.id.replace(/-\d+$/, '')))
   const zPromptu = ids.filter(id => znane.has(id))
   if (zPromptu.length === 1) return { zadanie: zPromptu[0] }
-  if (zPromptu.length === 0 && ids.length === 1) return { zadanie: ids[0] }
+  const zPrefiksem = ids.filter(id => prefiksy.has(id.replace(/-\d+$/, '')))
+  if (zPromptu.length === 0 && zPrefiksem.length === 1) return { zadanie: zPrefiksem[0] }
   const wToku = zadania.filter(z => z.stan === 'w-toku').map(z => z.id)
   if (wToku.length === 1) return { zadanie: wToku[0] }
   if (wToku.length > 1) return { zadania: wToku }

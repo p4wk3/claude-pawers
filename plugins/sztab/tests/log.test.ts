@@ -113,9 +113,16 @@ test('zadanie tury: id z promptu, jedyne w toku, kilka w toku = lista', () => {
     { id: 'A-3', stan: 'zrobione' },
   ]
   expect(zadanieTury(['A-3'], z)).toEqual({ zadanie: 'A-3' })
-  // Nieznane id, ale jedyne w prompcie: też je bierzemy (zadanie spoza pliku).
-  expect(zadanieTury(['B-9'], z)).toEqual({ zadanie: 'B-9' })
-  // Znane id wygrywa z nieznanym (np. UTF-8 w treści).
+  // Id spoza pliku z prefiksem trackera z pliku: nowe zadanie tego projektu.
+  expect(zadanieTury(['A-9'], z)).toEqual({ zadanie: 'A-9' })
+  // Obcy prefiks to nie zadanie: zostaje zadanie w toku (tu jedno).
+  const jedno = [{ id: 'MNG-140', stan: 'w-toku' }]
+  for (const obce of ['UTF-8', 'ISO-8601', 'COVID-19', 'SHA-256', 'B-9']) {
+    expect(zadanieTury([obce], jedno)).toEqual({ zadanie: 'MNG-140' })
+  }
+  // Bez pliku zadań id z promptu nie wystarcza.
+  expect(zadanieTury(['UTF-8'], [])).toEqual({})
+  // Znane id wygrywa z obcym w tej samej treści.
   expect(zadanieTury(['UTF-8', 'A-1'], z)).toEqual({ zadanie: 'A-1' })
   expect(zadanieTury([], z)).toEqual({ zadania: ['A-1', 'A-2'] })
   expect(zadanieTury([], [{ id: 'A-1', stan: 'w-toku' }])).toEqual({ zadanie: 'A-1' })

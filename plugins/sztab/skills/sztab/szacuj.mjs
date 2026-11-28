@@ -22,9 +22,16 @@ import { join } from 'node:path'
 const DIR = join(homedir(), '.claude', 'pawers')
 
 const args = process.argv.slice(2)
+// Flaga z wartością: brak wartości albo kolejna flaga zamiast niej = błąd, nie cichy zapis pod złym id.
 const opt = name => {
   const i = args.indexOf(`--${name}`)
-  return i === -1 ? undefined : args[i + 1]
+  if (i === -1) return undefined
+  const v = args[i + 1]
+  if (v === undefined || v.startsWith('--')) {
+    console.error(`--${name} wymaga wartości.`)
+    process.exit(1)
+  }
+  return v
 }
 const projekt = opt('projekt')
 const linieCel = Number(opt('linie')) || undefined
@@ -54,8 +61,9 @@ for (const f of pliki) {
     }
   }
 }
-// Koszt zadań liczymy z całego logu, niezależnie od filtrów --dni / --projekt.
-const calyLog = wpisy
+// Koszt zadań liczymy z całego logu (bez filtra --dni); z --projekt tylko z tego projektu, żeby
+// zadania o tym samym id w różnych repo się nie mieszały.
+const calyLog = projekt ? wpisy.filter(w => w.projekt === projekt) : wpisy
 if (dni) {
   const od = Date.now() - dni * 86400000
   wpisy = wpisy.filter(w => Date.parse(w.t) >= od)
@@ -115,7 +123,7 @@ function czytajJsonl(path) {
 }
 
 // Ostatni szacunek każdego zadania i zadania zamknięte (`--zamknij`).
-const zapisy = czytajJsonl(SZACUNKI)
+const zapisy = czytajJsonl(SZACUNKI).filter(x => !projekt || !x.projekt || x.projekt === projekt)
 const szacunki = new Map(zapisy.filter(x => !x.zamkniete).map(x => [x.zadanie, x]))
 const zamkniete = new Set(zapisy.filter(x => x.zamkniete).map(x => x.zadanie))
 
@@ -189,7 +197,7 @@ if (szacunek) szacunek.wpisow = wpisy.length
 if (zamknij) {
   const f = porownanie(zamknij)
   mkdirSync(DIR, { recursive: true })
-  appendFileSync(SZACUNKI, `${JSON.stringify({ t: new Date().toISOString(), zadanie: zamknij, zamkniete: true, faktyczny: f.usd, prompty: f.prompty })}\n`)
+  appendFileSync(SZACUNKI, `${JSON.stringify({ t: new Date().toISOString(), zadanie: zamknij, projekt, zamkniete: true, faktyczny: f.usd, prompty: f.prompty })}\n`)
   console.log(`Zamknięto ${zamknij}: ${f.prompty} promptów, $${f.usd ?? 0}` + (f.szacunek ? ` wobec szacunku $${f.szacunek.usd} (×${f.odchylenie ?? '—'}).` : ', bez szacunku.'))
   process.exit(0)
 }

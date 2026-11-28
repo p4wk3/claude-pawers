@@ -27,7 +27,7 @@ node <katalog tego skilla>/../sztab/szacuj.mjs --linie N      # cały log, wszys
 - Projekt ma mniej niż ~20 wpisów w logu — użyj całego logu i powiedz to wprost.
 - Plan z wariantami — policz każdy wariant osobno.
 - Zadanie ma id w trackerze (`MNG-140`) — zapisz wybrany wariant przy nim, dopisując
-  `--zapisz MNG-140`. Przy domknięciu orkiestrator porówna go z faktycznym kosztem (`--zamknij`).
+  `--zapisz MNG-140` (razem z `--projekt <nazwa repo>`, żeby id z innych repo się nie mieszały). Przy domknięciu orkiestrator porówna go z faktycznym kosztem (`--zamknij`).
 - Wynik ma linię „Po kalibracji” (gdy są co najmniej 3 zamknięte zadania z szacunkiem) — podawaj ją
   jako główną liczbę: to szacunek poprawiony o to, ile dotąd faktycznie kosztowały zadania wobec szacunków.
 
