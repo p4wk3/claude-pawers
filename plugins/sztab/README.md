@@ -30,7 +30,10 @@ w panelu.
   (z subagentami, cennik API), tokeny, czas, a z gita pliki, `+`/`−` linii i commity tej tury.
   `node skills/sztab/szacuj.mjs` liczy z niego metrykę (USD i tokeny na prompt i na 100 linii, per
   projekt) i szacunek (`--linie 400`, `--prompty 12`, `--projekt`, `--dni`, `--json`). Orkiestrator
-  szacuje pracę tą metryką, nigdy w godzinach ani dniach.
+  szacuje pracę tą metryką, nigdy w godzinach ani dniach. Wpis dostaje id zadania (z promptu albo
+  jedynego „w toku” w pliku zadań), więc `--zadanie MNG-140` i `--zadania` pokazują faktyczny koszt
+  zadań. Szacunek zapisany przy zadaniu (`--zapisz`) po jego zamknięciu (`--zamknij`) kalibruje
+  kolejne szacunki (`~/.claude/pawers/szacunki.jsonl`). Klucze API wklejone w prompt log maskuje.
 - **`/szacuj`** — szacunek kosztu planowanej implementacji (USD, tokeny, prompty) z metryk logu.
   Do tego stała zasada w prompcie głównej sesji: agent szacuje w USD, tokenach i promptach, a przy
   każdym planie implementacji proponuje sprawdzenie względem metryk.
@@ -190,7 +193,9 @@ claude plugin test .
   i liczbami z diffu; skrypt `szacuj.mjs`; skill szacuje pracę w tokenach i USD zamiast w czasie;
   `/podsumowanie` podaje koszt dnia; komenda `/szacuj` (skill `sztab:szacuj`) i stała sekcja promptu
   o kosztach (szacunki w USD, tokenach i promptach, propozycja sprawdzenia przy planie); poprawki panelu
-  i pliku kosztów; sekcja 7 skilla: Workflow i ultracode.
+  i pliku kosztów; sekcja 7 skilla: Workflow i ultracode. Wpisy logu z id zadania (z promptu albo
+  jedynego w toku); szacunek przy zadaniu (`--zapisz`), faktyczny koszt (`--zadanie`, `--zadania`),
+  zamknięcie (`--zamknij`) i kalibracja kolejnych szacunków; klucze API w promptach maskowane w logu.
 - **0.9.1** — sekcja 6 skilla: podsesje i sprinty (gałąź sprintu, meldunki, scala sesja główna, numery
   przy scalaniu); lekcje kompilacji (testy po jednym, `touch`, bez formatowania całego repo); merge
   pełnym sha; agent projektu o tej samej nazwie wygrywa; tester nie dla programów okienkowych.

@@ -59,6 +59,11 @@ tokeny i liczba promptów — z prawdziwych danych, nie z wyczucia.
 - Planując zadanie, oceń jego rozmiar w liniach zmiany albo w promptach i podaj wynik skryptu:
   `≈$3–4 · ~1 mln tok. · ~5 promptów (z 214 promptów w logu)`. Przy mało danych (kilkanaście wpisów)
   powiedz to wprost. Pusty log — podaj rozmiar w liniach i promptach, bez kwot.
+- Każdy wpis logu dostaje id zadania: z promptu (`MNG-140 popraw listę`) albo jedynego zadania
+  „w toku” z `.claude/zadania.json`. Dlatego pilnuj stanów w pliku zadań (`zadanie.mjs`, sekcja 1)
+  i podawaj id w promptach do agentów — inaczej koszt nie trafi do zadania.
+- Szacunek zadania zapisuj przy nim (`--zapisz MNG-140`); faktyczny koszt: `szacuj.mjs --zadanie MNG-140`,
+  lista zadań z odchyleniem: `--zadania`.
 - Dokładnie to robi `/szacuj` (skill `sztab:szacuj`) dla planowanej pracy. Przedstawiając **jakikolwiek**
   plan implementacji, kończysz go jedną propozycją: „Sprawdzić koszt względem metryk? (/szacuj)”.
   Proponujesz, nie uruchamiasz bez prośby.
@@ -255,7 +260,9 @@ rozmawiasz z właścicielem.
    Produkcja tylko za wyraźną zgodą właściciela.
 5. CI zielone → merge (jeśli projekt na to pozwala bez właściciela). Komentarz w trackerze: co zmienione
    i jak przetestowane, prostym językiem; zadanie do Review albo Done. Na końcu komentarza linia kosztu
-   z `.claude/sztab-koszty.json` (panel sumuje tam agentów per zadanie): `Agenci: 14 · 38 min · ≈$1.20
+   z `.claude/sztab-koszty.json` (panel sumuje tam agentów per zadanie) i z globalnego logu po
+   `node <katalog skilla>/szacuj.mjs --zamknij MNG-140` (zamyka zadanie do kalibracji szacunków):
+   `Koszt: 9 promptów · ≈$4.10, szacunek $3.00 (×1.4) · Agenci: 14 · 38 min · ≈$1.20
    (cennik API)`. Koszt to szacunek pracy subagentów, bez Twojej własnej rozmowy.
 6. Właściciel dostaje 2–4 zdania: co zrobione, co wymaga jego decyzji. Bez surowych raportów agentów.
    **Lekcje:** zbierz z raportów pola `brief-gaps:`, `lesson:` i `instruction-following:`. Co powtarza

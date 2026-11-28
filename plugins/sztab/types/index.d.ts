@@ -130,6 +130,9 @@ export type WpisLogu = {
   plus?: number
   minus?: number
   commity?: number
+  // Zadanie tej tury: id z promptu albo jedyne w toku; kilka w toku bez wskazania = lista.
+  zadanie?: string
+  zadania?: string[]
 }
 
 // Stan repo i kosztu z początku tury: plik -> [dodane, usunięte] względem `base`.
@@ -140,4 +143,6 @@ export type LogStart = {
   usd?: number
   base?: string
   stan?: Record<string, [number, number]>
+  // Id zadań (MNG-140) wypisane w pełnym prompcie.
+  ids?: string[]
 }

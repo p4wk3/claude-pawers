@@ -8,7 +8,14 @@
 //   node szacuj.mjs --projekt mnghub     tylko jeden projekt (też razem z --linie / --prompty)
 //   node szacuj.mjs --dni 30             tylko ostatnie 30 dni
 //   node szacuj.mjs --json               to samo jako JSON
-import { readFileSync, readdirSync } from 'node:fs'
+//   node szacuj.mjs --linie 400 --zapisz MNG-140   szacunek zapisany przy zadaniu (szacunki.jsonl)
+//   node szacuj.mjs --zadanie MNG-140    faktyczny koszt zadania z logu wobec jego szacunku
+//   node szacuj.mjs --zadania            zadania z kosztem z logu, szacunkiem i odchyleniem
+//   node szacuj.mjs --zamknij MNG-140    zadanie skończone: zapisuje jego faktyczny koszt do kalibracji
+//
+// Kalibracja: przy co najmniej 3 zamkniętych zadaniach z szacunkiem każdy nowy szacunek dostaje
+// wersję skorygowaną o medianę (faktyczny / szacowany) z tych zadań.
+import { appendFileSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -24,6 +31,11 @@ const linieCel = Number(opt('linie')) || undefined
 const promptyCel = Number(opt('prompty')) || undefined
 const dni = Number(opt('dni')) || undefined
 const jakoJson = args.includes('--json')
+const zapisz = opt('zapisz')
+const zadanieId = opt('zadanie')
+const listaZadan = args.includes('--zadania')
+const zamknij = opt('zamknij')
+const SZACUNKI = join(DIR, 'szacunki.jsonl')
 
 let wpisy = []
 let pliki = []
@@ -42,6 +54,8 @@ for (const f of pliki) {
     }
   }
 }
+// Koszt zadań liczymy z całego logu, niezależnie od filtrów --dni / --projekt.
+const calyLog = wpisy
 if (dni) {
   const od = Date.now() - dni * 86400000
   wpisy = wpisy.filter(w => Date.parse(w.t) >= od)
@@ -86,6 +100,56 @@ function statystyki(ws) {
   }
 }
 
+function czytajJsonl(path) {
+  try {
+    return readFileSync(path, 'utf8').split('\n').filter(l => l.trim()).flatMap(l => {
+      try {
+        return [JSON.parse(l)]
+      } catch {
+        return []
+      }
+    })
+  } catch {
+    return []
+  }
+}
+
+// Ostatni szacunek każdego zadania i zadania zamknięte (`--zamknij`).
+const zapisy = czytajJsonl(SZACUNKI)
+const szacunki = new Map(zapisy.filter(x => !x.zamkniete).map(x => [x.zadanie, x]))
+const zamkniete = new Set(zapisy.filter(x => x.zamkniete).map(x => x.zadanie))
+
+// Faktyczny koszt zadania: tury przypisane do niego w logu (`zadanie`). Tury z kilkoma zadaniami
+// w toku (`zadania`) pokazujemy osobno jako niepewne, nie dzielimy ich.
+function faktyczny(id) {
+  const ws = calyLog.filter(w => w.zadanie === id)
+  const niepewne = calyLog.filter(w => !w.zadanie && (w.zadania ?? []).includes(id))
+  const t = ws.map(w => w.t).sort()
+  return {
+    zadanie: id,
+    prompty: ws.length,
+    usd: r(ws.reduce((a, w) => a + (w.usd ?? 0), 0)),
+    tokeny: ws.reduce((a, w) => a + tok(w), 0),
+    linie: ws.reduce((a, w) => a + lin(w), 0),
+    commity: ws.reduce((a, w) => a + (w.commity ?? 0), 0),
+    od: t[0],
+    do: t[t.length - 1],
+    niepewne: { prompty: niepewne.length, usd: r(niepewne.reduce((a, w) => a + (w.usd ?? 0), 0)) },
+  }
+}
+
+function porownanie(id) {
+  const f = faktyczny(id)
+  const sz = szacunki.get(id)
+  return { ...f, zamkniete: zamkniete.has(id), szacunek: sz, odchylenie: sz?.usd && f.usd ? r(f.usd / sz.usd) : undefined }
+}
+
+const zadaniaZLogu = [...new Set(calyLog.map(w => w.zadanie).filter(Boolean))]
+const porownania = [...new Set([...zadaniaZLogu, ...szacunki.keys()])].map(porownanie)
+// Zadanie w toku ma jeszcze niepełny koszt: do kalibracji tylko zamknięte.
+const ilorazy = porownania.filter(p => p.zamkniete && p.odchylenie !== undefined).map(p => p.odchylenie)
+const kalibracja = ilorazy.length >= 3 ? { mnoznik: r(kwantyl(ilorazy, 0.5)), zadan: ilorazy.length } : undefined
+
 const wszystko = statystyki(wpisy)
 const naProjekt = {}
 for (const p of [...new Set(wpisy.map(w => w.projekt))].sort()) naProjekt[p] = statystyki(wpisy.filter(w => w.projekt === p))
@@ -113,8 +177,55 @@ if (linieCel && wszystko.usdNa100Linii !== undefined) {
   }
 }
 
+if (szacunek && kalibracja) {
+  szacunek.skorygowany = {
+    usd: r(szacunek.usd * kalibracja.mnoznik),
+    usdZakres: szacunek.usdZakres.map(x => r(x * kalibracja.mnoznik)),
+    ...kalibracja,
+  }
+}
+if (szacunek) szacunek.wpisow = wpisy.length
+
+if (zamknij) {
+  const f = porownanie(zamknij)
+  mkdirSync(DIR, { recursive: true })
+  appendFileSync(SZACUNKI, `${JSON.stringify({ t: new Date().toISOString(), zadanie: zamknij, zamkniete: true, faktyczny: f.usd, prompty: f.prompty })}\n`)
+  console.log(`Zamknięto ${zamknij}: ${f.prompty} promptów, $${f.usd ?? 0}` + (f.szacunek ? ` wobec szacunku $${f.szacunek.usd} (×${f.odchylenie ?? '—'}).` : ', bez szacunku.'))
+  process.exit(0)
+}
+
+if (zapisz) {
+  if (!szacunek) {
+    console.error('--zapisz wymaga --linie albo --prompty i danych w logu.')
+    process.exit(1)
+  }
+  mkdirSync(DIR, { recursive: true })
+  appendFileSync(SZACUNKI, `${JSON.stringify({ t: new Date().toISOString(), zadanie: zapisz, projekt, ...szacunek })}\n`)
+}
+
 if (jakoJson) {
-  console.log(JSON.stringify({ katalog: DIR, filtr: { projekt, dni }, wszystko, naProjekt, szacunek }, null, 2))
+  const extra = zadanieId ? { zadanie: porownanie(zadanieId) } : listaZadan ? { zadania: porownania } : {}
+  console.log(JSON.stringify({ katalog: DIR, filtr: { projekt, dni }, wszystko, naProjekt, szacunek, kalibracja, ...extra }, null, 2))
+  process.exit(0)
+}
+
+const tysiace = n => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} mln` : n >= 1e3 ? `${Math.round(n / 1e3)} tys.` : String(n))
+const dolary = n => (n === undefined ? '—' : `$${n}`)
+function wierszZadania(p) {
+  const sz =
+    (p.zamkniete ? 'zamknięte, ' : 'w toku, ') +
+    (p.szacunek ? `szacunek ${dolary(p.szacunek.usd)}` + (p.odchylenie ? `, faktycznie ×${p.odchylenie}` : '') : 'bez szacunku')
+  const niep = p.niepewne.prompty ? ` (+${p.niepewne.prompty} promptów wspólnych z innymi zadaniami, ${dolary(p.niepewne.usd)})` : ''
+  return `${p.zadanie}: ${p.prompty} promptów, ${dolary(p.usd)}, ${tysiace(p.tokeny)} tok., ${p.linie} linii, ${p.commity} commitów | ${sz}${niep}`
+}
+if (zadanieId) {
+  console.log(wierszZadania(porownanie(zadanieId)))
+  process.exit(0)
+}
+if (listaZadan) {
+  if (!porownania.length) console.log('Brak zadań w logu: wpisy dostają id zadania z promptu albo z jedynego zadania w toku.')
+  for (const p of porownania.sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0))) console.log(wierszZadania(p))
+  if (kalibracja) console.log(`Kalibracja: faktyczny koszt = ×${kalibracja.mnoznik} szacunku (mediana z ${kalibracja.zadan} zadań).`)
   process.exit(0)
 }
 
@@ -139,6 +250,14 @@ if (szacunek) {
   console.log(
     `Szacunek: ${szacunek.linie ? `~${szacunek.linie} linii, ` : ''}${szacunek.prompty ? `~${szacunek.prompty} promptów, ` : ''}` +
       `${usd(szacunek.usd)} (zakres ${usd(szacunek.usdZakres[0])}–${usd(szacunek.usdZakres[1])})` +
-      (szacunek.tokeny ? `, ~${tys(szacunek.tokeny)} tok. pętli głównej` : ''),
+      (szacunek.tokeny ? `, ~${tys(szacunek.tokeny)} tok. pętli głównej` : '') +
+      ` [z ${szacunek.wpisow} wpisów]`,
   )
+  if (szacunek.skorygowany) {
+    console.log(
+      `Po kalibracji (×${kalibracja.mnoznik}, ${kalibracja.zadan} zadań): ${usd(szacunek.skorygowany.usd)} ` +
+        `(zakres ${usd(szacunek.skorygowany.usdZakres[0])}–${usd(szacunek.skorygowany.usdZakres[1])})`,
+    )
+  }
+  if (zapisz) console.log(`Zapisano szacunek przy ${zapisz}.`)
 }

@@ -17,6 +17,9 @@ Szczegóły projektu (tracker, prefiks zadań, gałąź robocza) są w `CLAUDE.m
 - Zmiany stanu zadań (tracker albo `.claude/zadania.json`).
 - Koszt na zadanie z `.claude/sztab-koszty.json`, jeśli plik jest: `MNG-140 · 14 agentów · ≈$1.20`.
 - Koszt dnia z globalnego logu: `node <katalog tego skilla>/../sztab/szacuj.mjs --dni 1` (prompty, USD, tokeny, `+`/`−` linii).
+- Zadania z tej sesji wobec szacunków: `node <katalog tego skilla>/../sztab/szacuj.mjs --zadania` — tylko te
+  ruszane dziś, jedna linia na zadanie (`MNG-140 · $4.10 · szacunek $3.00 (×1.4)`). Zadanie skończone,
+  a niezamknięte w logu — zaproponuj `--zamknij`.
 - Lekcje z pracy agentów: pola `brief-gaps:`, `lesson:` i `instruction-following:` z raportów tej sesji.
   W odpowiedzi najwyżej 2 linie, prostym językiem (co poszło nie tak w zleceniu i co zmieniamy).
 

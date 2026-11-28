@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { roznica } from '../hooks/log'
+import { roznica, zadanieTury } from '../hooks/log'
 
 const settle = () => new Promise(r => (globalThis as unknown as { setTimeout: (f: () => void, ms: number) => void }).setTimeout(() => r(undefined), 50))
 
@@ -29,7 +29,16 @@ test('tura głównej sesji dopisuje linię do globalnego logu; tura subagenta ni
   })
   on('fs.stat', () => ({ value: { kind: 'file', size: 20, mtimeMs: 0, isLink: false } }) as never)
   on('fs.exists', ($: unknown, e: { path: string }) => ({ value: e.path.replace(/\\/g, '/') in files }) as never)
-  const files: Record<string, string> = { 'nowy.ts': 'a\nb\n' }
+  const files: Record<string, string> = {
+    'nowy.ts': 'a\nb\n',
+    // Plik zadań w katalogu repo (sesja w worktree nie ma własnego).
+    'C:/Users/u/projects/mnghub/.claude/zadania.json': JSON.stringify({
+      zadania: [
+        { id: 'VIN-7', tytul: 'a', stan: 'w-toku' },
+        { id: 'VIN-8', tytul: 'b', stan: 'do-zrobienia' },
+      ],
+    }),
+  }
   on('fs.read', ($: unknown, e: { path: string }) => {
     const p = e.path.replace(/\\/g, '/')
     if (p in files) return { value: files[p] } as never
@@ -65,7 +74,7 @@ test('tura głównej sesji dopisuje linię do globalnego logu; tura subagenta ni
   await settle()
   // Workflow w tle wydał $0.30 między turami: trafia do następnego wpisu, nie przepada.
   usd = 1.75
-  await $.turn.start({ text: 'dalej', turnId: 't3' })
+  await $.turn.start({ text: 'teraz VIN-8, klucz sk-abcdefghijklmnopqrstuv', turnId: 't3' })
   usd = 1.8
   await $.turn.complete({ answer: 'ok', durationMs: 1, isAborted: false, turnId: 't3', reason: 'answer' } as never)
   await settle()
@@ -74,7 +83,11 @@ test('tura głównej sesji dopisuje linię do globalnego logu; tura subagenta ni
   expect(log).toBeDefined()
   const lines = log.trim().split('\n')
   expect(lines.length).toBe(2)
-  expect(JSON.parse(lines[1]).usd).toBe(0.35)
+  const drugi = JSON.parse(lines[1])
+  expect(drugi.usd).toBe(0.35)
+  // Id z promptu wygrywa z zadaniem w toku; klucz nie trafia do logu.
+  expect(drugi.zadanie).toBe('VIN-8')
+  expect(drugi.prompt).toBe('teraz VIN-8, klucz [sekret]')
   expect(JSON.parse(lines[0])).toEqual({
     t: '2026-11-28T09:00:00.000Z',
     projekt: 'mnghub',
@@ -89,7 +102,24 @@ test('tura głównej sesji dopisuje linię do globalnego logu; tura subagenta ni
     plus: 10,
     minus: 3,
     commity: 2,
+    zadanie: 'VIN-7',
   })
+})
+
+test('zadanie tury: id z promptu, jedyne w toku, kilka w toku = lista', () => {
+  const z = [
+    { id: 'A-1', stan: 'w-toku' },
+    { id: 'A-2', stan: 'w-toku' },
+    { id: 'A-3', stan: 'zrobione' },
+  ]
+  expect(zadanieTury(['A-3'], z)).toEqual({ zadanie: 'A-3' })
+  // Nieznane id, ale jedyne w prompcie: też je bierzemy (zadanie spoza pliku).
+  expect(zadanieTury(['B-9'], z)).toEqual({ zadanie: 'B-9' })
+  // Znane id wygrywa z nieznanym (np. UTF-8 w treści).
+  expect(zadanieTury(['UTF-8', 'A-1'], z)).toEqual({ zadanie: 'A-1' })
+  expect(zadanieTury([], z)).toEqual({ zadania: ['A-1', 'A-2'] })
+  expect(zadanieTury([], [{ id: 'A-1', stan: 'w-toku' }])).toEqual({ zadanie: 'A-1' })
+  expect(zadanieTury([], [])).toEqual({})
 })
 
 test('nieczytelny istniejący log nie jest nadpisywany', async ($, on) => {

@@ -78,7 +78,7 @@ export function roznica(przed: Stan, po: Stan): { pliki: number; plus: number; m
 }
 
 function krotko(text: string): string {
-  const t = text.replace(/\s+/g, ' ').trim()
+  const t = text.replace(SEKRET_RE, '[sekret]').replace(/\s+/g, ' ').trim()
   return t.length > PROMPT_MAX ? `${t.slice(0, PROMPT_MAX)}…` : t
 }
 
@@ -98,14 +98,50 @@ async function plikLogu($: EngineInterface, t: number): Promise<string | undefin
   return `${home.replace(/\\/g, '/')}/${KATALOG}/log-${mies}.jsonl`
 }
 
-async function projekt($: EngineInterface): Promise<string> {
-  // Worktree (`.claude/worktrees/x`) zapisujemy pod nazwą repo: katalog nad wspólnym `.git`.
+// Katalog repo (dla worktree `.claude/worktrees/x`: katalog nad wspólnym `.git`) albo katalog sesji.
+async function katalogRepo($: EngineInterface): Promise<string> {
   const common = (await git($, ['rev-parse', '--path-format=absolute', '--git-common-dir']))?.trim().replace(/\\/g, '/')
   const repo = common?.endsWith('/.git') ? common.slice(0, -5) : undefined
   const top = repo || (await git($, ['rev-parse', '--show-toplevel']))?.trim()
-  const dir = top || (await $.session.cwd())
-  return dir.replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop() || dir
+  return (top || (await $.session.cwd())).replace(/\\/g, '/').replace(/\/+$/, '')
 }
+
+function nazwaProjektu(dir: string): string {
+  return dir.split('/').pop() || dir
+}
+
+// Id zadania w stylu trackera (MNG-140), jak w opisach agentów.
+const ID_RE = /(?<![A-Za-z0-9])([A-Z][A-Z0-9]*-\d+)(?![A-Za-z0-9])/g
+
+type Zadanie = { id: string; stan: string }
+
+// Zadania z pliku panelu: najpierw katalog sesji (worktree może mieć własny), potem katalog repo.
+async function wczytajZadania($: EngineInterface, repo: string): Promise<Zadanie[]> {
+  for (const path of ['zadania/zadania.json', '.claude/zadania.json', `${repo}/zadania/zadania.json`, `${repo}/.claude/zadania.json`]) {
+    try {
+      return (JSON.parse(await $.fs.read(path)) as { zadania?: Zadanie[] }).zadania ?? []
+    } catch {
+      // następny kandydat
+    }
+  }
+  return []
+}
+
+// Do którego zadania należy tura: id z promptu (znane z pliku albo jedyne w prompcie), inaczej
+// jedyne zadanie w toku; kilka w toku bez wskazania = lista, bez zgadywania.
+export function zadanieTury(ids: string[], zadania: Zadanie[]): Pick<WpisLogu, 'zadanie' | 'zadania'> {
+  const znane = new Set(zadania.map(z => z.id))
+  const zPromptu = ids.filter(id => znane.has(id))
+  if (zPromptu.length === 1) return { zadanie: zPromptu[0] }
+  if (zPromptu.length === 0 && ids.length === 1) return { zadanie: ids[0] }
+  const wToku = zadania.filter(z => z.stan === 'w-toku').map(z => z.id)
+  if (wToku.length === 1) return { zadanie: wToku[0] }
+  if (wToku.length > 1) return { zadania: wToku }
+  return {}
+}
+
+// Wklejony klucz nie powinien trafić do logu otwartym tekstem.
+const SEKRET_RE = /\b(sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abp]-[A-Za-z0-9-]{10,}|AKIA[A-Z0-9]{16}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+)/g
 
 async function dopisz($: EngineInterface, wpis: WpisLogu): Promise<void> {
   const path = await plikLogu($, Date.parse(wpis.t))
@@ -131,7 +167,8 @@ export const registerLog: Register = on => {
     const [t, usd, head] = await Promise.all([$.clock.now(), kosztSesji($), git($, ['rev-parse', 'HEAD'])])
     const base = head?.trim() || undefined
     const stan = base ? await stanRepo($, base) : undefined
-    await update($, start, () => ({ turnId: e.turnId, prompt: krotko(e.text), t, usd, base, stan }))
+    const ids = [...new Set([...e.text.matchAll(ID_RE)].map(m => m[1]!))].slice(0, 5)
+    await update($, start, () => ({ turnId: e.turnId, prompt: krotko(e.text), t, usd, base, stan, ids }))
     return result
   }).catch(($, e, next) => next(e))
 }
@@ -143,18 +180,19 @@ export async function logTurnComplete($: EngineInterface, e: TurnCompleteInput):
   if (!s || s.turnId !== e.turnId) return
   await update($, start, () => null)
   void (async () => {
-    const [t, usd, nazwa] = await Promise.all([$.clock.now(), kosztSesji($), projekt($)])
+    const [t, usd, repo] = await Promise.all([$.clock.now(), kosztSesji($), katalogRepo($)])
     const u = e.usage
     const wpis: WpisLogu = {
       t: new Date(s.t).toISOString(),
-      projekt: nazwa,
+      projekt: nazwaProjektu(repo),
       prompt: s.prompt,
       koniec: e.reason,
       min: Math.round(((t - s.t) / 60000) * 10) / 10,
     }
     // Koszt sesji z hosta liczy też subagentów i workflow; bez niego nie zgadujemy.
     const od = (await read($, ostatniUsd)) ?? s.usd
-    if (usd !== undefined && od !== undefined) wpis.usd = Math.round((usd - od) * 10000) / 10000
+    // Licznik sesji mógł się wyzerować (nowa sesja w tym samym procesie): wtedy liczymy od zera.
+    if (usd !== undefined && od !== undefined) wpis.usd = Math.round((usd >= od ? usd - od : usd) * 10000) / 10000
     if (usd !== undefined) await update($, ostatniUsd, () => usd)
     if (u) {
       wpis.tokWe = u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens
@@ -170,6 +208,7 @@ export async function logTurnComplete($: EngineInterface, e: TurnCompleteInput):
         if (n > 0) wpis.commity = n
       }
     }
+    Object.assign(wpis, zadanieTury(s.ids ?? [], await wczytajZadania($, repo)))
     await dopisz($, wpis)
-  })()
+  })().catch(() => undefined)
 }
