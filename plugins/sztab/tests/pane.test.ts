@@ -62,6 +62,7 @@ test('zadania z pliku, grupowanie po id, czynność z tool.call, tokeny i podgl�
   on('agent.spawn', ($, e) => ({ model: 'claude-sonnet-5-5', agentId: ids[e.description] ?? 'ax' }) as never)
   on('tool.call', () => ({ result: {}, text: '' }) as never)
   on('turn.complete', ($, e) => ({ text: e.answer, usage: e.usage }))
+  on('fs.exists', () => ({ value: false }) as never)
   const written: Record<string, string> = {}
   on('fs.write', ($, e) => {
     written[e.path.replace(/\\/g, '/')] = e.text

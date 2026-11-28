@@ -62,7 +62,8 @@ Pokaż, co zrobisz, i poczekaj na „tak”. Potem:
 4. `CLAUDE.md` repo: dopisz krótką sekcję (albo zaktualizuj istniejącą):
    ```markdown
    ## Sztab
-   Pracuj jako orkiestrator według skilla `sztab:sztab`.
+   Główna sesja (nie subagenci ani agenci workflow) pracuje jako orkiestrator według skilla
+   `sztab:sztab`; subagent wykonuje tylko własne zlecenie.
    - Zadania: <Linear, zespół X, prefiks X-n | plik .claude/zadania.json, prefiks X-n>.
    - MVP: <etykieta MVP | milestone … | oznaczane ręcznie>; cel „<nazwa>”<, termin RRRR-MM-DD>.
    ```

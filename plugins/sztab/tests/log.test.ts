@@ -19,7 +19,9 @@ test('tura głównej sesji dopisuje linię do globalnego logu; tura subagenta ni
     const cmd = e.argv.join(' ')
     let stdout = ''
     if (cmd === 'git rev-parse HEAD') stdout = `${head}\n`
-    else if (cmd === 'git rev-parse --show-toplevel') stdout = 'C:/Users/u/projects/mnghub\n'
+    // Sesja w worktree: wpis ma iść pod nazwą repo, nie katalogu worktree.
+    else if (cmd === 'git rev-parse --path-format=absolute --git-common-dir') stdout = 'C:/Users/u/projects/mnghub/.git\n'
+    else if (cmd === 'git rev-parse --show-toplevel') stdout = 'C:/Users/u/projects/mnghub/.claude/worktrees/x\n'
     else if (cmd.startsWith('git diff --numstat')) stdout = diff
     else if (cmd.startsWith('git rev-list --count')) stdout = '2\n'
     else if (cmd.startsWith('git ls-files --others')) stdout = 'nowy.ts\n'

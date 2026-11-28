@@ -31,6 +31,9 @@ w panelu.
   `node skills/sztab/szacuj.mjs` liczy z niego metrykę (USD i tokeny na prompt i na 100 linii, per
   projekt) i szacunek (`--linie 400`, `--prompty 12`, `--projekt`, `--dni`, `--json`). Orkiestrator
   szacuje pracę tą metryką, nigdy w godzinach ani dniach.
+- **`/szacuj`** — szacunek kosztu planowanej implementacji (USD, tokeny, prompty) z metryk logu.
+  Do tego stała zasada w prompcie głównej sesji: agent szacuje w USD, tokenach i promptach, a przy
+  każdym planie implementacji proponuje sprawdzenie względem metryk.
 - **Panel `/sztab`** — subagenci na żywo, pogrupowani po id zadania, z bieżącą czynnością, czasem,
   tokenami i podglądem wyniku. Do tego zapełnienie okna kontekstu i koszt sesji oraz zadania w toku.
   Działa w terminalu i w aplikacji desktopowej.
@@ -154,6 +157,17 @@ polecenie. Push na inne gałęzie i zakładanie PR-ów nie są blokowane.
 Repo, w którym commitujesz prosto na `main` (bez gałęzi i PR-ów), wyłącza bramkę przeglądu plikiem
 `.claude/sztab.json`: `{ "bramka": { "main": false } }`. Bramka wdrożeń działa dalej.
 
+### Log i aktualizacja
+
+Log nie wymaga ustawień w projektach: mod wtyczki zapisuje go w katalogu domowym
+(`~/.claude/pawers/`) wszędzie tam, gdzie wtyczka jest zainstalowana (zakres user). Projekty, które
+już jej używają, nie potrzebują żadnych zmian. Opcjonalnie: nowe brzmienie linii o orkiestratorze
+w `CLAUDE.md` (tylko sesja główna, nie subagenci) wpisze ponowne `/pawers-setup` albo ręczna poprawka.
+Sesje w worktree (`.claude/worktrees/…`) logują się pod nazwą repo.
+
+Aktualizacja: z marketplace — `claude plugin marketplace update pawers` i restart. Instalacja
+lokalna (`CLAUDE_CODE_PLUGIN_DIRS` albo `--plugin-dir`) używa tej gałęzi, która jest wyciągnięta na dysku.
+
 ## Rozwój
 
 ```bash
@@ -166,7 +180,9 @@ claude plugin test .
 
 - **0.11.0** — globalny, międzyprojektowy log promptów (`~/.claude/pawers/`) z kosztem, tokenami
   i liczbami z diffu; skrypt `szacuj.mjs`; skill szacuje pracę w tokenach i USD zamiast w czasie;
-  `/podsumowanie` podaje koszt dnia.
+  `/podsumowanie` podaje koszt dnia; komenda `/szacuj` (skill `sztab:szacuj`) i stała sekcja promptu
+  o kosztach (szacunki w USD, tokenach i promptach, propozycja sprawdzenia przy planie); poprawki panelu
+  i pliku kosztów; sekcja 7 skilla: Workflow i ultracode.
 - **0.9.1** — sekcja 6 skilla: podsesje i sprinty (gałąź sprintu, meldunki, scala sesja główna, numery
   przy scalaniu); lekcje kompilacji (testy po jednym, `touch`, bez formatowania całego repo); merge
   pełnym sha; agent projektu o tej samej nazwie wygrywa; tester nie dla programów okienkowych.

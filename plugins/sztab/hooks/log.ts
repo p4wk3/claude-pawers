@@ -99,7 +99,10 @@ async function plikLogu($: EngineInterface, t: number): Promise<string | undefin
 }
 
 async function projekt($: EngineInterface): Promise<string> {
-  const top = (await git($, ['rev-parse', '--show-toplevel']))?.trim()
+  // Worktree (`.claude/worktrees/x`) zapisujemy pod nazwą repo: katalog nad wspólnym `.git`.
+  const common = (await git($, ['rev-parse', '--path-format=absolute', '--git-common-dir']))?.trim().replace(/\\/g, '/')
+  const repo = common?.endsWith('/.git') ? common.slice(0, -5) : undefined
+  const top = repo || (await git($, ['rev-parse', '--show-toplevel']))?.trim()
   const dir = top || (await $.session.cwd())
   return dir.replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop() || dir
 }

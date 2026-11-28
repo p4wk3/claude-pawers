@@ -103,6 +103,8 @@ declare module 'claude-code' {
       // Koszt sesji (USD) przy ostatnim wpisie logu; null = jeszcze żadnego.
       logUsd: number | null
       agentCwd: Record<string, string>
+      // Id przebiegów workflow, dla których panel już otwarto (ostatnie 20).
+      workflowRuns: string[]
     }
   }
 }

@@ -30,6 +30,7 @@ const now = atom({ plugin: 'sztab', key: 'now' } as const, 0)
 const zadania = atom({ plugin: 'sztab', key: 'zadania' } as const, null)
 const open = atom({ plugin: 'sztab', key: 'open' } as const, [])
 const dzis = atom({ plugin: 'sztab', key: 'dzis' } as const, 0)
+const workflowRuns = atom({ plugin: 'sztab', key: 'workflowRuns' } as const, [])
 
 const DAY = 24 * 60 * 60 * 1000
 
@@ -118,13 +119,26 @@ function usd(n: number): string {
 
 const KOSZTY = '.claude/sztab-koszty.json'
 
+// Zapisy kosztów idą po kolei: równoległe zakończenia agentów nie zgubią sobie nawzajem sum.
+let kolejkaKosztow: Promise<void> = Promise.resolve()
+
+function zapiszKoszt($: EngineInterface, task: string, tokens: number, cost: number, ms: number): Promise<void> {
+  const next = kolejkaKosztow.then(() => zapiszKosztRaz($, task, tokens, cost, ms))
+  kolejkaKosztow = next.catch(() => undefined)
+  // Błąd zapisu zostaje w kolejce; wywołujący (bez await) nie dostaje odrzuconej obietnicy.
+  return kolejkaKosztow
+}
+
 // Dopisuje agenta do sum zadania w pliku repo, żeby orkiestrator mógł podać koszt w trackerze.
-async function zapiszKoszt($: EngineInterface, task: string, tokens: number, cost: number, ms: number): Promise<void> {
+async function zapiszKosztRaz($: EngineInterface, task: string, tokens: number, cost: number, ms: number): Promise<void> {
   let all: Record<string, KosztZadania> = {}
-  try {
-    all = JSON.parse(await $.fs.read(KOSZTY)) as Record<string, KosztZadania>
-  } catch {
-    // brak pliku: zaczynamy od zera
+  // Tylko brak pliku zaczyna od zera; nieczytelny istniejący plik zostaje nietknięty.
+  if (await $.fs.exists(KOSZTY).catch(() => true)) {
+    try {
+      all = JSON.parse(await $.fs.read(KOSZTY)) as Record<string, KosztZadania>
+    } catch {
+      return
+    }
   }
   const prev = all[task] ?? { agenci: 0, tokeny: 0, kosztUsd: 0, minuty: 0 }
   all[task] = {
@@ -143,6 +157,22 @@ async function zapiszKoszt($: EngineInterface, task: string, tokens: number, cos
 // "VIN-148 Poprawki ściągi" -> zadanie VIN-148, opis "Poprawki ściągi".
 // Dowolny prefiks w stylu Lineara/Jiry: wielkie litery, myślnik, numer.
 const TASK_RE = /^([A-Z][A-Z0-9]*-\d+)\s*[·:—-]?\s*/
+
+// Agenty workflow mają w opisie końcówkę „(workflow #N)” i zwykle nie mają id zadania.
+const WORKFLOW_RE = /\(workflow #\d+\)$/
+
+// Zostawia wiersze „running”, a gdy trzeba ciąć, usuwa najstarsze zakończone; limit 50.
+function przytnij(rows: AgentRow[]): AgentRow[] {
+  let extra = rows.length - 50
+  if (extra <= 0) return rows
+  return rows.filter(r => {
+    if (extra > 0 && !RUNNING.has(r.status)) {
+      extra -= 1
+      return false
+    }
+    return true
+  })
+}
 
 function splitTask(description: string): { task?: string; rest: string } {
   const m = description.match(TASK_RE)
@@ -355,6 +385,7 @@ export const register: Register = on => {
     })
     await $.command.register({ name: 'raport', description: OPISY.raport })
     await $.command.register({ name: 'podsumowanie', description: OPISY.podsumowanie })
+    await $.command.register({ name: 'szacuj', description: OPISY.szacuj })
 
     let tick = 0
     $.clock.every(1000, () => {
@@ -410,9 +441,20 @@ export const register: Register = on => {
         status: 'running',
         tokens: 0,
       }
-      await update($, agents, rows => [...rows, row].slice(-50))
+      await update($, agents, rows => przytnij([...rows, row]))
       await update($, now, () => t)
-      void $.ui.open({ id: PANE, title: TITLE })
+      // Workflow otwiera panel tylko przy pierwszym agencie danego przebiegu.
+      const runId = e.workflow?.runId
+      // Decyzja w jednym update, żeby równoległe spawny tego samego przebiegu nie otworzyły go kilka razy.
+      let nowy = !runId
+      if (runId) {
+        await update($, workflowRuns, runs => {
+          if (runs.includes(runId)) return runs
+          nowy = true
+          return [...runs, runId].slice(-20)
+        })
+      }
+      if (nowy) void $.ui.open({ id: PANE, title: TITLE })
     }
 
     return result
@@ -451,7 +493,12 @@ export const register: Register = on => {
         ),
       )
       await update($, now, () => t)
-      const task = before ? splitTask(before.description).task : undefined
+      let task = before ? splitTask(before.description).task : undefined
+      // Agent workflow bez id w opisie: koszt idzie na jedyne zadanie w toku.
+      if (!task && before && WORKFLOW_RE.test(before.description)) {
+        const wToku = (await read($, zadania))?.wToku ?? []
+        if (wToku.length === 1) task = wToku[0]!.id
+      }
       if (task && before) void zapiszKoszt($, task, used, cost, t - before.startedAt)
     } else {
       await refreshCtx($)

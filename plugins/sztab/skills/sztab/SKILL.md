@@ -26,8 +26,8 @@ Każda praca ma zadanie w trackerze projektu (Linear, GitHub Issues, Jira — pa
 - Zacznij od przeczytania zadania: opis, komentarze, załączniki. Przestaw je na „w toku”.
 - Nie ma zadania — załóż je z celem i warunkiem „gotowe, gdy…”, zanim ruszysz kod. Projekt bez
   trackera — ustal z właścicielem krótki identyfikator (np. `SZT-1`) i trzymaj się go.
-- W opisie (`description`) **każdego** wywołania Agent dawaj id zadania na początku: `MNG-140 Lista wizyt`.
-  Po tym panel grupuje agentów. Po id 3–5 słów.
+- W opisie (`description`) **każdego** wywołania Agent dawaj id zadania na początku: `MNG-140 Lista wizyt`
+  — także label agenta w skrypcie Workflow. Po tym panel grupuje agentów. Po id 3–5 słów.
 - Panel bierze tytuły i liczniki z `.claude/zadania.json` w katalogu repo (dodaj go do `.gitignore`).
   Przy każdej zmianie stanu w trackerze zmień go też tam, uruchamiając z katalogu repo skrypt
   `zadanie.mjs` leżący obok tego pliku (ścieżkę podaje nagłówek „Base directory” tego skilla):
@@ -59,6 +59,9 @@ tokeny i liczba promptów — z prawdziwych danych, nie z wyczucia.
 - Planując zadanie, oceń jego rozmiar w liniach zmiany albo w promptach i podaj wynik skryptu:
   `≈$3–4 · ~1 mln tok. · ~5 promptów (z 214 promptów w logu)`. Przy mało danych (kilkanaście wpisów)
   powiedz to wprost. Pusty log — podaj rozmiar w liniach i promptach, bez kwot.
+- Dokładnie to robi `/szacuj` (skill `sztab:szacuj`) dla planowanej pracy. Przedstawiając **jakikolwiek**
+  plan implementacji, kończysz go jedną propozycją: „Sprawdzić koszt względem metryk? (/szacuj)”.
+  Proponujesz, nie uruchamiasz bez prośby.
 
 ## 2. Zespół
 
@@ -113,7 +116,7 @@ Domyślnie **po kolei, nie wszystko naraz**:
 5. **Tester** — przy zmianach w UI i wszystkim, co widzi użytkownik — sprawdza wynik na żywo
    w przeglądarce na lokalnej aplikacji: kryteria `done-when`, role, widoki 375/768 px i desktop, błędy
    w konsoli i sieci, czy dane naprawdę się zapisały. Przed recenzentem albo równolegle z nim. Zawsze
-   tylko jeden tester naraz (jedna przeglądarka). Potrzebuje rozszerzenia Claude in Chrome albo
+   tylko jeden tester naraz (jedna przeglądarka; w workflow patrz sekcja 7e). Potrzebuje rozszerzenia Claude in Chrome albo
    wbudowanej przeglądarki aplikacji desktopowej.
 6. **Recenzent** dostaje diff gałęzi i sprawdza go z `CLAUDE.md` i dokumentacją domeny. Recenzuje wynik,
    nie wejście.
@@ -300,3 +303,27 @@ główna zostaje z właścicielem. Podział ról:
   zgłasza jako nowe zadanie.
 - Zmiana widoczna dla użytkownika poprawia w tym samym commicie dokumentację, którą plan wymienia przy
   zadaniu. Blokada po stronie interfejsu (nieaktywny przycisk) ma też odmowę po stronie logiki/serwera.
+
+## 7. Workflow i ultracode
+
+Sztab działa z Workflow i ultracode: workflow to deterministyczny sposób uruchomienia tego samego
+zespołu. Zasady:
+
+- **a)** Workflow nie zatrzyma się, żeby zapytać właściciela. Przy każdej decyzji właściciela dziel na
+  osobne workflow: research → właściciel decyduje w sesji głównej → workflow implementacji.
+- **b)** Agentów uruchamiaj z `agentType: "sztab:<rola>"` (`sztab:zwiadowca`, `sztab:badacz`,
+  `sztab:rzemieslnik`, `sztab:recenzent`, `sztab:tester`) — zostają modele, narzędzia i kontrakty raportów.
+- **c)** Label każdego agenta zaczyna się od id zadania (`MNG-140 Lista wizyt`), jak przy narzędziu Agent —
+  panel grupuje i liczy koszt.
+- **d)** `sztab:recenzent` zawsze bez schematu: jego ostatnia linia `verdict: ok sha: <sha>` zasila
+  bramkę merge'a. W jednym przebiegu tylko JEDEN `sztab:recenzent` na sha; dodatkowi weryfikatorzy
+  (adversarial) idą jako zwykli agenci, bez linii z werdyktem.
+- **e)** `sztab:tester` nigdy w `parallel()`/`pipeline()`: najwyżej jeden naraz (jedna przeglądarka),
+  we własnej fazie.
+- **f)** Równolegli rzemieślnicy w worktree tylko edytują i robią lekkie sprawdzenia; ciężkie buildy
+  i testy w osobnej fazie, po jednym.
+- **g)** Push, merge do `main` i wdrożenie zostają w sesji głównej po powrocie workflow — nigdy
+  w agencie workflow.
+- **h)** Koszt: wydatki workflow w tle trafiają do logu przy następnym prompcie. Duży workflow
+  oszacuj przed startem przez `/szacuj`. Ultracode tylko do dużych przeglądów, migracji i audytów;
+  na co dzień wyłączony, a `workflowSizeGuideline` małe albo średnie.
