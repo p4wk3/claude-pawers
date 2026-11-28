@@ -16,6 +16,9 @@ type Stan = Record<string, [number, number]>
 
 
 const start = atom({ plugin: 'sztab', key: 'logStart' } as const, null)
+// Koszt sesji przy ostatnim wpisie. Workflow i agenci w tle wydają też między turami: liczymy od
+// ostatniego wpisu, nie od startu tury, żeby nic nie przepadło (trafia do następnego promptu).
+const ostatniUsd = atom({ plugin: 'sztab', key: 'logUsd' } as const, null)
 
 async function git($: EngineInterface, argv: string[]): Promise<string | null> {
   try {
@@ -108,7 +111,8 @@ async function dopisz($: EngineInterface, wpis: WpisLogu): Promise<void> {
   try {
     dotad = await $.fs.read(path)
   } catch {
-    // nowy miesiąc: nowy plik
+    // Plik jest, ale nie da się go przeczytać (blokada, limit 4 MiB): nie nadpisujemy go jedną linią.
+    if (await $.fs.exists(path).catch(() => true)) return
   }
   try {
     await $.fs.write(path, `${dotad}${JSON.stringify(wpis)}\n`)
@@ -145,8 +149,10 @@ export async function logTurnComplete($: EngineInterface, e: TurnCompleteInput):
       koniec: e.reason,
       min: Math.round(((t - s.t) / 60000) * 10) / 10,
     }
-    // Koszt sesji z hosta liczy też subagentów tej tury; bez niego nie zgadujemy.
-    if (usd !== undefined && s.usd !== undefined) wpis.usd = Math.round((usd - s.usd) * 10000) / 10000
+    // Koszt sesji z hosta liczy też subagentów i workflow; bez niego nie zgadujemy.
+    const od = (await read($, ostatniUsd)) ?? s.usd
+    if (usd !== undefined && od !== undefined) wpis.usd = Math.round((usd - od) * 10000) / 10000
+    if (usd !== undefined) await update($, ostatniUsd, () => usd)
     if (u) {
       wpis.tokWe = u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens
       wpis.tokWy = u.output_tokens

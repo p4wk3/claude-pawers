@@ -26,6 +26,7 @@ test('tura głównej sesji dopisuje linię do globalnego logu; tura subagenta ni
     return { value: { exitCode: 0, stdout, stderr: '' } } as never
   })
   on('fs.stat', () => ({ value: { kind: 'file', size: 20, mtimeMs: 0, isLink: false } }) as never)
+  on('fs.exists', ($: unknown, e: { path: string }) => ({ value: e.path.replace(/\\/g, '/') in files }) as never)
   const files: Record<string, string> = { 'nowy.ts': 'a\nb\n' }
   on('fs.read', ($: unknown, e: { path: string }) => {
     const p = e.path.replace(/\\/g, '/')
@@ -60,11 +61,18 @@ test('tura głównej sesji dopisuje linię do globalnego logu; tura subagenta ni
   await $.turn.start({ text: 'x', turnId: 't2', agentId: 'a1' })
   await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 't2', agentId: 'a1', reason: 'answer' } as never)
   await settle()
+  // Workflow w tle wydał $0.30 między turami: trafia do następnego wpisu, nie przepada.
+  usd = 1.75
+  await $.turn.start({ text: 'dalej', turnId: 't3' })
+  usd = 1.8
+  await $.turn.complete({ answer: 'ok', durationMs: 1, isAborted: false, turnId: 't3', reason: 'answer' } as never)
+  await settle()
 
   const log = files['C:/Users/u/.claude/pawers/log-2026-11.jsonl']
   expect(log).toBeDefined()
   const lines = log.trim().split('\n')
-  expect(lines.length).toBe(1)
+  expect(lines.length).toBe(2)
+  expect(JSON.parse(lines[1]).usd).toBe(0.35)
   expect(JSON.parse(lines[0])).toEqual({
     t: '2026-11-28T09:00:00.000Z',
     projekt: 'mnghub',
@@ -80,4 +88,27 @@ test('tura głównej sesji dopisuje linię do globalnego logu; tura subagenta ni
     minus: 3,
     commity: 2,
   })
+})
+
+test('nieczytelny istniejący log nie jest nadpisywany', async ($, on) => {
+  const writes: string[] = []
+  on('process.run', () => ({ value: { exitCode: 128, stdout: '', stderr: '' } }) as never)
+  on('fs.read', () => {
+    throw new Error('EBUSY')
+  })
+  on('fs.exists', () => ({ value: true }) as never)
+  on('fs.write', ($: unknown, e: { path: string }) => {
+    writes.push(e.path)
+    return { value: undefined } as never
+  })
+  on('env.get', ($: unknown, e: { name: string }) => ({ value: e.name === 'HOME' ? '/home/u' : undefined }) as never)
+  on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: 1, window: 10, percent: 1 }, rateLimits: [], cost: { usd: 1 } } }) as never)
+  on('session.cwd', () => ({ value: '/x/proj' }) as never)
+  on('clock.now', () => ({ value: Date.UTC(2026, 10, 28) }) as never)
+  on('turn.start', ($: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
+  on('turn.complete', ($: unknown, e: { answer: string }) => ({ text: e.answer }))
+  await $.turn.start({ text: 'x', turnId: 't1' })
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as never)
+  await settle()
+  expect(writes.filter(p => p.includes('pawers'))).toEqual([])
 })

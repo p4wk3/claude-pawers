@@ -100,6 +100,8 @@ declare module 'claude-code' {
       bramkaMain: boolean
       // Początek bieżącej tury głównej sesji do globalnego logu (hooks/log.ts).
       logStart: LogStart | null
+      // Koszt sesji (USD) przy ostatnim wpisie logu; null = jeszcze żadnego.
+      logUsd: number | null
       agentCwd: Record<string, string>
     }
   }
