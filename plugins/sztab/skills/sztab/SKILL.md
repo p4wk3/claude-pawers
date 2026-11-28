@@ -41,6 +41,25 @@ Każda praca ma zadanie w trackerze projektu (Linear, GitHub Issues, Jira — pa
   z `CLAUDE.md` (np. etykieta `MVP` w Linearze) dodawaj z `--mvp` i `--priorytet <1-4>` z trackera.
   Repo bez pliku albo bez celu — zaproponuj raz `/pawers-setup`.
 
+## 1a. Szacowanie pracy — w tokenach, nie w czasie
+
+Pracy **nie szacujesz w godzinach, dniach ani tygodniach**. Miarą jest koszt: USD według cennika API,
+tokeny i liczba promptów — z prawdziwych danych, nie z wyczucia.
+
+- Mod Sztabu dopisuje każdy prompt głównej sesji, we wszystkich projektach, do globalnego logu
+  `~/.claude/pawers/log-RRRR-MM.jsonl`: początek promptu, przyrost kosztu sesji (z subagentami),
+  tokeny, czas, a z gita pliki, `+`/`−` linii i commity tej tury.
+- Szacunek liczy skrypt `szacuj.mjs` obok tego pliku:
+  ```bash
+  node <katalog skilla>/szacuj.mjs                    # metryka: wszystkie projekty i każdy osobno
+  node <katalog skilla>/szacuj.mjs --linie 400        # zmiana o ~400 linii (dodane + usunięte)
+  node <katalog skilla>/szacuj.mjs --prompty 12       # ~12 promptów pracy
+  node <katalog skilla>/szacuj.mjs --projekt mnghub --linie 400   # tylko dane tego projektu
+  ```
+- Planując zadanie, oceń jego rozmiar w liniach zmiany albo w promptach i podaj wynik skryptu:
+  `≈$3–4 · ~1 mln tok. · ~5 promptów (z 214 promptów w logu)`. Przy mało danych (kilkanaście wpisów)
+  powiedz to wprost. Pusty log — podaj rozmiar w liniach i promptach, bez kwot.
+
 ## 2. Zespół
 
 Agenci z tej wtyczki mają przedrostek `sztab:` (`subagent_type: "sztab:zwiadowca"`).

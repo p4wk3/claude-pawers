@@ -4,6 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { AgentRow, CelSnap, CtxSnap, KosztZadania, ZadaniaSnap, ZadanieMvp } from '../types'
 import { avatarFor, bounce } from '../avatary/iso'
 import { OPISY, komendy } from './komendy'
+import { logTurnComplete, registerLog } from './log'
 import { registerRepo, repoDesktop, repoTerminal } from './repo'
 
 const PANE = 'sztab'
@@ -341,6 +342,7 @@ async function refreshAgents($: EngineInterface): Promise<void> {
 export const register: Register = on => {
   komendy(on)
   registerRepo(on)
+  registerLog(on)
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -425,6 +427,7 @@ export const register: Register = on => {
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
+    await logTurnComplete($, e)
     if (e.agentId) {
       const t = await $.clock.now()
       const u = e.usage

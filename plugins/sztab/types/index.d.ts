@@ -98,7 +98,40 @@ declare module 'claude-code' {
       // Katalog roboczy subagenta po id (z agent.spawn albo z `cd <ścieżka absolutna>` w jego poleceniach).
       // Bramka przeglądu przed main (.claude/sztab.json `bramka.main`, domyślnie włączona).
       bramkaMain: boolean
+      // Początek bieżącej tury głównej sesji do globalnego logu (hooks/log.ts).
+      logStart: LogStart | null
       agentCwd: Record<string, string>
     }
   }
+}
+
+// Linia globalnego logu ~/.claude/pawers/log-RRRR-MM.jsonl: jedna tura głównej sesji.
+export type WpisLogu = {
+  t: string
+  projekt: string
+  // Pierwsze 160 znaków promptu ("" = kontynuacja bez wpisanego tekstu).
+  prompt: string
+  koniec: string
+  min: number
+  // Przyrost kosztu sesji w tej turze (z subagentami), USD według cennika API.
+  usd?: number
+  // Tokeny samej pętli głównej: wejście z cache i wyjście.
+  tokWe?: number
+  tokWy?: number
+  model?: string
+  // Zmiana w repo w tej turze, względem HEAD z jej początku (z nieśledzonymi plikami).
+  pliki?: number
+  plus?: number
+  minus?: number
+  commity?: number
+}
+
+// Stan repo i kosztu z początku tury: plik -> [dodane, usunięte] względem `base`.
+export type LogStart = {
+  turnId: string
+  prompt: string
+  t: number
+  usd?: number
+  base?: string
+  stan?: Record<string, [number, number]>
 }

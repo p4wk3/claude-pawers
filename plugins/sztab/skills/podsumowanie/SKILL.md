@@ -16,6 +16,7 @@ Szczegóły projektu (tracker, prefiks zadań, gałąź robocza) są w `CLAUDE.m
 - Commity i PR-y z tej sesji (`git log`, `gh pr list` — jeśli projekt używa GitHuba).
 - Zmiany stanu zadań (tracker albo `.claude/zadania.json`).
 - Koszt na zadanie z `.claude/sztab-koszty.json`, jeśli plik jest: `MNG-140 · 14 agentów · ≈$1.20`.
+- Koszt dnia z globalnego logu: `node <katalog tego skilla>/../sztab/szacuj.mjs --dni 1` (prompty, USD, tokeny, `+`/`−` linii).
 - Lekcje z pracy agentów: pola `brief-gaps:`, `lesson:` i `instruction-following:` z raportów tej sesji.
   W odpowiedzi najwyżej 2 linie, prostym językiem (co poszło nie tak w zleceniu i co zmieniamy).
 

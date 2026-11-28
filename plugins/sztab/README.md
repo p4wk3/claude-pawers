@@ -25,6 +25,12 @@ w panelu.
 - **Koszt na zadanie** — przy każdym zadaniu w panelu: liczba agentów, tokeny i szacunkowy koszt
   według cennika API. Sumy narastają w `.claude/sztab-koszty.json`, skąd orkiestrator wpisuje je do
   komentarza w trackerze przy domknięciu.
+- **Globalny log i szacunki w tokenach** — każdy prompt głównej sesji, w każdym projekcie, trafia jako
+  jedna linia JSON do `~/.claude/pawers/log-RRRR-MM.jsonl`: początek promptu, przyrost kosztu sesji
+  (z subagentami, cennik API), tokeny, czas, a z gita pliki, `+`/`−` linii i commity tej tury.
+  `node skills/sztab/szacuj.mjs` liczy z niego metrykę (USD i tokeny na prompt i na 100 linii, per
+  projekt) i szacunek (`--linie 400`, `--prompty 12`, `--projekt`, `--dni`, `--json`). Orkiestrator
+  szacuje pracę tą metryką, nigdy w godzinach ani dniach.
 - **Panel `/sztab`** — subagenci na żywo, pogrupowani po id zadania, z bieżącą czynnością, czasem,
   tokenami i podglądem wyniku. Do tego zapełnienie okna kontekstu i koszt sesji oraz zadania w toku.
   Działa w terminalu i w aplikacji desktopowej.
@@ -158,6 +164,9 @@ claude plugin test .
 
 ## Zmiany
 
+- **0.11.0** — globalny, międzyprojektowy log promptów (`~/.claude/pawers/`) z kosztem, tokenami
+  i liczbami z diffu; skrypt `szacuj.mjs`; skill szacuje pracę w tokenach i USD zamiast w czasie;
+  `/podsumowanie` podaje koszt dnia.
 - **0.9.1** — sekcja 6 skilla: podsesje i sprinty (gałąź sprintu, meldunki, scala sesja główna, numery
   przy scalaniu); lekcje kompilacji (testy po jednym, `touch`, bez formatowania całego repo); merge
   pełnym sha; agent projektu o tej samej nazwie wygrywa; tester nie dla programów okienkowych.
