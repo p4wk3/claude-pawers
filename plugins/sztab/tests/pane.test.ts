@@ -194,7 +194,7 @@ function setup(on: any, plik: string | null) {
   })
 }
 
-test('pasek MVP: postęp, termin i pilne zadania w kolejności', async ($, on) => {
+test('pasek MVP: postęp i termin, bez listy zadań', async ($, on) => {
   setup(on, MVP)
   await $.session.start({ cwd: '/x', surface: 'terminal', isInteractive: true })
   await settle()
@@ -208,7 +208,8 @@ test('pasek MVP: postęp, termin i pilne zadania w kolejności', async ($, on) =
   expect(drawn).toContain('MVP fryz.app')
   expect(drawn).toContain(' 1/3')
   expect(drawn).toContain('za 3 dni')
-  expect(drawn.indexOf('MNG-3')).toBeLessThan(drawn.indexOf('MNG-2'))
+  expect(drawn).not.toContain('MNG-3')
+  expect(drawn).not.toContain('MNG-2')
   expect(drawn).not.toContain('MNG-4')
   expect(drawn).not.toContain('MNG-1')
   await ui.unmount()

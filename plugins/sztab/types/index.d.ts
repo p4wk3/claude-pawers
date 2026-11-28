@@ -45,6 +45,8 @@ export type CelSnap = {
   zrobione: number
   wszystkie: number
   pilne: ZadanieMvp[]
+  // Zmiany scalone, a jeszcze niewdrożone (commity `wdrozenie.na..wdrozenie.z`); brak pola = nie liczymy.
+  czeka?: number
 }
 
 // Wyciąg z pliku zadań bieżącego katalogu (format w README).
